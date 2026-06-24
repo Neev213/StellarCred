@@ -1,0 +1,18 @@
+[package]
+name = "proof_registry"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+# Real contract crate, used only to deploy a live verifier in native tests.
+# Kept out of [dependencies] to avoid linking its exported wasm symbols.
+credential_verifier = { path = "../credential_verifier" }
