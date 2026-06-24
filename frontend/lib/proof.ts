@@ -8,9 +8,11 @@
 //
 // Toolchain must match the contracts: Noir 1.0.0-beta.9 / bb 0.87.0.
 
-import { Noir, type InputMap } from "@noir-lang/noir_js";
-import { UltraHonkBackend } from "@aztec/bb.js";
+import type { InputMap } from "@noir-lang/noir_js";
 import type { CredentialType } from "./stellar";
+
+// bb.js and noir_js are browser-only (WASM + workers) and crash if evaluated
+// during SSR, so they're imported dynamically inside generateProof().
 
 export interface GeneratedProof {
   /** Raw proof bytes (456 fields × 32 = 14592 bytes), as the contract expects. */
@@ -88,15 +90,21 @@ export async function generateProof(
   credential: Record<string, unknown>,
 ): Promise<GeneratedProof> {
   const circuit = await loadCircuit(type);
+  const { Noir } = await import("@noir-lang/noir_js");
+  const { UltraHonkBackend } = await import("@aztec/bb.js");
 
   // 1. Execute the circuit to produce the witness (private inputs stay local).
   const noir = new Noir(circuit as never);
   const { witness } = await noir.execute(buildInputs(type, credential));
 
   // 2. Generate the UltraHonk proof. `keccak` matches the verifier's transcript.
-  //    threads:1 avoids the SharedArrayBuffer/COOP-COEP requirement; raise it
-  //    (and set cross-origin isolation headers) for faster proving.
-  const backend = new UltraHonkBackend(circuit.bytecode, { threads: 1 });
+  //    Multithreading needs cross-origin isolation (COOP/COEP headers, set in
+  //    next.config.mjs); falls back to single-threaded if unavailable.
+  const threads =
+    typeof navigator !== "undefined" && crossOriginIsolated
+      ? navigator.hardwareConcurrency || 4
+      : 1;
+  const backend = new UltraHonkBackend(circuit.bytecode, { threads });
   try {
     const { proof, publicInputs } = await backend.generateProof(witness, {
       keccak: true,

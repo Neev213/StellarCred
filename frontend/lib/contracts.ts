@@ -4,27 +4,28 @@
 //  - submitProof: builds, signs (via wallet), and submits a ProofRegistry
 //    submit_proof transaction carrying a real UltraHonk proof.
 //  - isVerified: read-only simulation of ProofRegistry.is_verified.
+//
+// @stellar/stellar-sdk is imported dynamically so it never runs during SSR.
 
 import { Buffer } from "buffer";
-import {
-  rpc,
-  Contract,
-  TransactionBuilder,
-  Address,
-  nativeToScVal,
-  scValToNative,
-  xdr,
-  BASE_FEE,
-} from "@stellar/stellar-sdk";
 import { RPC_URL, NETWORK_PASSPHRASE, CONTRACTS } from "./stellar";
 import { signTx } from "./wallet";
 
-const server = new rpc.Server(RPC_URL, {
-  allowHttp: RPC_URL.startsWith("http://"),
-});
+type SDK = typeof import("@stellar/stellar-sdk");
 
-function bytesScVal(u8: Uint8Array): xdr.ScVal {
-  return xdr.ScVal.scvBytes(Buffer.from(u8));
+let sdkPromise: Promise<SDK> | null = null;
+function sdk(): Promise<SDK> {
+  if (!sdkPromise) sdkPromise = import("@stellar/stellar-sdk");
+  return sdkPromise;
+}
+
+let server: InstanceType<SDK["rpc"]["Server"]> | null = null;
+async function getServer() {
+  if (!server) {
+    const { rpc } = await sdk();
+    server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith("http://") });
+  }
+  return server;
 }
 
 export interface VerificationStatus {
@@ -52,7 +53,11 @@ export async function submitProof(params: {
     );
   }
 
-  const account = await server.getAccount(holder);
+  const { Contract, TransactionBuilder, Address, nativeToScVal, xdr, BASE_FEE } =
+    await sdk();
+  const srv = await getServer();
+
+  const account = await srv.getAccount(holder);
   const contract = new Contract(CONTRACTS.proofRegistry);
   const expiry = Math.floor(Date.now() / 1000) + ttlSecs;
 
@@ -60,8 +65,8 @@ export async function submitProof(params: {
     "submit_proof",
     Address.fromString(holder).toScVal(),
     nativeToScVal(credentialType, { type: "symbol" }),
-    bytesScVal(proof),
-    bytesScVal(publicInputs),
+    xdr.ScVal.scvBytes(Buffer.from(proof)),
+    xdr.ScVal.scvBytes(Buffer.from(publicInputs)),
     nativeToScVal(BigInt(expiry), { type: "u64" }),
   );
 
@@ -74,9 +79,9 @@ export async function submitProof(params: {
     .build();
 
   // Simulate + assemble Soroban resources/fees, then sign with the wallet.
-  const prepared = await server.prepareTransaction(tx);
+  const prepared = await srv.prepareTransaction(tx);
   const signedXdr = await signTx(prepared.toXDR(), holder);
-  const sent = await server.sendTransaction(
+  const sent = await srv.sendTransaction(
     TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE),
   );
 
@@ -86,10 +91,10 @@ export async function submitProof(params: {
 
   // Poll for confirmation.
   const start = Date.now();
-  let result = await server.getTransaction(sent.hash);
+  let result = await srv.getTransaction(sent.hash);
   while (result.status === "NOT_FOUND" && Date.now() - start < 30_000) {
     await new Promise((r) => setTimeout(r, 1500));
-    result = await server.getTransaction(sent.hash);
+    result = await srv.getTransaction(sent.hash);
   }
   if (result.status !== "SUCCESS") {
     throw new Error(`Transaction ${sent.hash} did not succeed (${result.status}).`);
@@ -105,7 +110,11 @@ export async function isVerified(
   const empty: VerificationStatus = { valid: false, verifiedAt: 0, expiry: 0 };
   if (!CONTRACTS.proofRegistry) return empty;
 
-  const account = await server.getAccount(holder);
+  const { rpc, Contract, TransactionBuilder, Address, nativeToScVal, scValToNative, BASE_FEE } =
+    await sdk();
+  const srv = await getServer();
+
+  const account = await srv.getAccount(holder);
   const contract = new Contract(CONTRACTS.proofRegistry);
   const op = contract.call(
     "is_verified",
@@ -120,7 +129,7 @@ export async function isVerified(
     .setTimeout(30)
     .build();
 
-  const sim = await server.simulateTransaction(tx);
+  const sim = await srv.simulateTransaction(tx);
   if (rpc.Api.isSimulationError(sim) || !sim.result) return empty;
 
   const [valid, verifiedAt, expiry] = scValToNative(sim.result.retval) as [

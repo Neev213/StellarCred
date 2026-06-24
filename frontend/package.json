@@ -14,7 +14,9 @@
     "@noir-lang/noir_js": "1.0.0-beta.9",
     "@stellar/stellar-sdk": "^13.1.0",
     "@tabler/icons-react": "^3.21.0",
+    "buffer": "^6.0.3",
     "next": "14.2.15",
+    "process": "^0.11.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
