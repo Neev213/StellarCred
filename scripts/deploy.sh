@@ -5,6 +5,9 @@
 # Usage:
 #   stellar keys generate --global deployer --network testnet --fund
 #   SOURCE=deployer ./scripts/deploy.sh
+#
+# Requires stellar CLI v26+ (the verifier uses BN254 host functions / protocol
+# 23). Registers the kyc circuit's verification key so the system works as-is.
 set -euo pipefail
 
 SOURCE="${SOURCE:-deployer}"
@@ -37,6 +40,15 @@ PROOF_REGISTRY_ID="$(deploy proof_registry --verifier "$CREDENTIAL_VERIFIER_ID")
 
 echo "Deploying gated_pool (-> registry)..."
 GATED_POOL_ID="$(deploy gated_pool --registry "$PROOF_REGISTRY_ID")"
+
+echo "Registering kyc verification key..."
+stellar contract invoke \
+  --id "$CREDENTIAL_VERIFIER_ID" \
+  --source "$SOURCE" --network "$NETWORK" \
+  --send yes \
+  -- set_vk \
+  --credential_type kyc \
+  --vk-file-path fixtures/kyc/vk
 
 cat <<EOF
 

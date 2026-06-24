@@ -5,7 +5,12 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = "22.0.0"
+# Pinned to 26.0.1 to match rs-soroban-ultrahonk, whose verifier uses the
+# host-native BN254 crypto added in soroban-sdk 26.
+soroban-sdk = "26.0.1"
+# Real UltraHonk verifier (host-native BN254). Not published — sourced from git,
+# pinned to the commit studied during de-risking.
+ultrahonk_soroban_verifier = { git = "https://github.com/yugocabrio/rs-soroban-ultrahonk", rev = "661db07200f890b1bd9a7349ed787c70a706dd12", default-features = false }
 
 [profile.release]
 opt-level = "z"

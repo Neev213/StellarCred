@@ -5,6 +5,11 @@ use credential_verifier::{CredentialVerifier, CredentialVerifierClient};
 use proof_registry::{ProofRegistry, ProofRegistryClient};
 use soroban_sdk::{symbol_short, testutils::Address as _, Address, Bytes, Env};
 
+// Real UltraHonk artifacts, so the KYC gate exercises genuine verification.
+const VK: &[u8] = include_bytes!("../../../fixtures/kyc/vk");
+const PROOF: &[u8] = include_bytes!("../../../fixtures/kyc/proof");
+const PUBLIC_INPUTS: &[u8] = include_bytes!("../../../fixtures/kyc/public_inputs");
+
 struct Harness {
     registry: ProofRegistryClient<'static>,
     pool: GatedPoolClient<'static>,
@@ -14,7 +19,7 @@ fn deploy(env: &Env) -> Harness {
     let admin = Address::generate(env);
     let verifier_id = env.register(CredentialVerifier, (admin,));
     CredentialVerifierClient::new(env, &verifier_id)
-        .set_vk(&symbol_short!("kyc"), &Bytes::from_array(env, &[1, 2, 3]));
+        .set_vk(&symbol_short!("kyc"), &Bytes::from_slice(env, VK));
 
     let registry_id = env.register(ProofRegistry, (verifier_id,));
     let pool_id = env.register(GatedPool, (registry_id.clone(),));
@@ -26,9 +31,13 @@ fn deploy(env: &Env) -> Harness {
 }
 
 fn prove_kyc(env: &Env, registry: &ProofRegistryClient, holder: &Address) {
-    let proof = Bytes::from_array(env, &[7u8; 16]);
-    let public_inputs = Bytes::from_array(env, &[4u8; 32]);
-    registry.submit_proof(holder, &symbol_short!("kyc"), &proof, &public_inputs, &1_000_000);
+    registry.submit_proof(
+        holder,
+        &symbol_short!("kyc"),
+        &Bytes::from_slice(env, PROOF),
+        &Bytes::from_slice(env, PUBLIC_INPUTS),
+        &1_000_000,
+    );
 }
 
 #[test]
