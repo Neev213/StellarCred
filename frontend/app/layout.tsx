@@ -1,10 +1,23 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { Inter, JetBrains_Mono } from "next/font/google";
+import { SiteNav } from "@/components/SiteNav";
 import "./globals.css";
 
+const body = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-body",
+});
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono",
+});
+
 export const metadata: Metadata = {
-  title: "StellarCred",
-  description: "ZK credential proofs on Stellar — prove without revealing.",
+  title: "StellarCred — Prove anything. Reveal nothing.",
+  description:
+    "Zero-knowledge credentials on Stellar. Prove facts about yourself without the data ever touching the chain.",
 };
 
 export default function RootLayout({
@@ -13,18 +26,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${body.variable} ${mono.variable}`}>
       <body>
-        <header className="nav">
-          <Link href="/" className="brand">
-            StellarCred
-          </Link>
-          <nav>
-            <Link href="/issuer">Issuer</Link>
-            <Link href="/holder">Holder</Link>
-            <Link href="/verifier">Verifier Demo</Link>
-          </nav>
-        </header>
+        <SiteNav />
         <main className="container">{children}</main>
       </body>
     </html>
