@@ -41,14 +41,18 @@ PROOF_REGISTRY_ID="$(deploy proof_registry --verifier "$CREDENTIAL_VERIFIER_ID")
 echo "Deploying gated_pool (-> registry)..."
 GATED_POOL_ID="$(deploy gated_pool --registry "$PROOF_REGISTRY_ID")"
 
-echo "Registering kyc verification key..."
-stellar contract invoke \
-  --id "$CREDENTIAL_VERIFIER_ID" \
-  --source "$SOURCE" --network "$NETWORK" \
-  --send yes \
-  -- set_vk \
-  --credential_type kyc \
-  --vk-file-path fixtures/kyc/vk
+for type in kyc age jurisdiction; do
+  vk="fixtures/$type/vk"
+  [ -f "$vk" ] || { echo "skip $type (no VK — run circuits/scripts/build.sh)"; continue; }
+  echo "Registering $type verification key..."
+  stellar contract invoke \
+    --id "$CREDENTIAL_VERIFIER_ID" \
+    --source "$SOURCE" --network "$NETWORK" \
+    --send yes \
+    -- set_vk \
+    --credential_type "$type" \
+    --vk-file-path "$vk"
+done
 
 cat <<EOF
 

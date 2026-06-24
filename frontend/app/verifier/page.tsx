@@ -4,6 +4,7 @@ import { useState } from "react";
 import { IconLock, IconCheck, IconCircle } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { Badge } from "@/components/Badge";
+import { isVerified } from "@/lib/contracts";
 
 interface Requirement {
   label: string;
@@ -19,6 +20,21 @@ export default function VerifierPage() {
   const [amount, setAmount] = useState("5,000");
   const eligible = reqs.every((r) => r.proved);
 
+  // When a wallet connects, reflect the real on-chain KYC status if the
+  // contracts are deployed; otherwise the demo defaults stand.
+  async function onConnected(address: string) {
+    try {
+      const status = await isVerified(address, "kyc");
+      setReqs((rs) =>
+        rs.map((r) =>
+          r.label === "KYC verified" ? { ...r, proved: status.valid } : r,
+        ),
+      );
+    } catch {
+      // contracts not deployed / account unfunded — keep demo defaults
+    }
+  }
+
   return (
     <>
       <div className="between" style={{ marginBottom: "2.5rem" }}>
@@ -26,7 +42,7 @@ export default function VerifierPage() {
           <span className="eyebrow">Gated protocol · demo</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>PrivPool</h1>
         </div>
-        <WalletButton />
+        <WalletButton onConnected={onConnected} />
       </div>
 
       <div className="grid grid-2" style={{ alignItems: "start", gap: "1.5rem" }}>

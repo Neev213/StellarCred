@@ -32,6 +32,8 @@ type_of() {
   esac
 }
 
+REPO="$(cd "$ROOT/.." && pwd)"
+FIXTURES="$REPO/fixtures"
 mkdir -p "$FRONTEND_CIRCUITS"
 
 build() {
@@ -41,28 +43,37 @@ build() {
   echo "=== $name ==="
   pushd "$dir" >/dev/null
 
-  nargo compile
-  nargo execute
-
+  local type
+  type="$(type_of "$name")"
   local json="target/${name}.json"
   local gz="target/${name}.gz"
 
-  bb prove --scheme ultra_honk --oracle_hash keccak \
-    --bytecode_path "$json" --witness_path "$gz" \
-    --output_path target --output_format bytes_and_fields
+  # Compile + VK are always possible (write_vk needs only the bytecode).
+  nargo compile
   bb write_vk --scheme ultra_honk --oracle_hash keccak \
     --bytecode_path "$json" \
     --output_path target --output_format bytes_and_fields
-
   # bb may emit vk as target/vk/vk — normalise to target/vk.
   [ -f target/vk/vk ] && mv target/vk/vk target/vk.tmp && rmdir target/vk && mv target/vk.tmp target/vk || true
 
-  # Stage the compiled circuit for the browser prover.
-  local type
-  type="$(type_of "$name")"
+  # Commit the VK (deployed into CredentialVerifier) and stage the circuit JSON.
+  mkdir -p "$FIXTURES/$type"
+  cp target/vk "$FIXTURES/$type/vk"
   cp "$json" "$FRONTEND_CIRCUITS/${type}.json"
+  echo "  -> fixtures/${type}/vk"
   echo "  -> frontend/public/circuits/${type}.json"
-  echo "  -> $name/target/{vk,proof,public_inputs}"
+
+  # A sample proof needs concrete inputs; only build it when Prover.toml exists.
+  if [ -f Prover.toml ]; then
+    nargo execute
+    bb prove --scheme ultra_honk --oracle_hash keccak \
+      --bytecode_path "$json" --witness_path "$gz" \
+      --output_path target --output_format bytes_and_fields
+    cp target/proof "$FIXTURES/$type/proof"
+    cp target/public_inputs "$FIXTURES/$type/public_inputs"
+    echo "  -> fixtures/${type}/{proof,public_inputs}"
+  fi
+
   popd >/dev/null
 }
 

@@ -10,7 +10,7 @@ import {
   allowAllModules,
   FREIGHTER_ID,
 } from "@creit.tech/stellar-wallets-kit";
-import { NETWORK } from "./stellar";
+import { NETWORK, NETWORK_PASSPHRASE } from "./stellar";
 
 let kit: StellarWalletsKit | null = null;
 
@@ -41,4 +41,14 @@ export async function connect(): Promise<string> {
       },
     });
   });
+}
+
+/** Sign a transaction XDR with the connected wallet; returns the signed XDR. */
+export async function signTx(xdr: string, address: string): Promise<string> {
+  const k = getKit();
+  const { signedTxXdr } = await k.signTransaction(xdr, {
+    address,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+  return signedTxXdr;
 }

@@ -7,28 +7,59 @@ import {
   IconCheck,
   IconExternalLink,
   IconPlus,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { Badge } from "@/components/Badge";
 import { Check } from "@/components/Check";
 import { truncateHash } from "@/lib/format";
-import { EXPLORER_TX } from "@/lib/stellar";
+import { EXPLORER_TX, type CredentialType } from "@/lib/stellar";
+import { generateProof } from "@/lib/proof";
+import { submitProof } from "@/lib/contracts";
 
 interface Cred {
-  id: string;
+  id: CredentialType;
   title: string;
   claim: string;
   issuer: string;
   status: "active" | "pending";
+  // Private credential inputs the holder stores locally; fed to the circuit.
+  inputs: Record<string, unknown>;
 }
 
 const CREDENTIALS: Cred[] = [
-  { id: "kyc", title: "KYC Complete", claim: "identity verified", issuer: "StellarCred Authority", status: "active" },
-  { id: "age", title: "Age Verified", claim: "age ≥ 18", issuer: "StellarCred Authority", status: "active" },
-  { id: "income", title: "Accredited Investor", claim: "income > $200k", issuer: "Employer Inc.", status: "pending" },
+  {
+    id: "kyc",
+    title: "KYC Complete",
+    claim: "identity verified",
+    issuer: "StellarCred Authority",
+    status: "active",
+    inputs: {
+      preimage: "42",
+      commitment:
+        "0x255ee8299be9389b21052fd317f8cae762f9c89f756ac79262fb648a70ee7a08",
+    },
+  },
+  {
+    id: "age",
+    title: "Age Verified",
+    claim: "age ≥ 18",
+    issuer: "StellarCred Authority",
+    status: "pending",
+    inputs: {},
+  },
+  {
+    id: "income",
+    title: "Accredited Investor",
+    claim: "income > $200k",
+    issuer: "Employer Inc.",
+    status: "pending",
+    inputs: {},
+  },
 ];
 
 export default function HolderPage() {
+  const [address, setAddress] = useState("");
   const [proving, setProving] = useState<Cred | null>(null);
 
   return (
@@ -40,11 +71,15 @@ export default function HolderPage() {
             Your credentials
           </h1>
         </div>
-        <WalletButton />
+        <WalletButton onConnected={setAddress} />
       </div>
 
       {proving ? (
-        <ProofFlow cred={proving} onBack={() => setProving(null)} />
+        <ProofFlow
+          cred={proving}
+          holder={address}
+          onBack={() => setProving(null)}
+        />
       ) : (
         <div className="stack reveal" style={{ gap: "0.75rem" }}>
           {CREDENTIALS.map((c) => (
@@ -66,7 +101,8 @@ export default function HolderPage() {
                 )}
                 <button
                   className="btn btn-primary btn-sm"
-                  disabled={c.status !== "active"}
+                  disabled={c.status !== "active" || !address}
+                  title={!address ? "Connect a wallet first" : undefined}
                   onClick={() => setProving(c)}
                 >
                   Generate proof
@@ -75,6 +111,12 @@ export default function HolderPage() {
               </div>
             </div>
           ))}
+
+          {!address && (
+            <p className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.25rem" }}>
+              Connect a wallet to generate and submit proofs.
+            </p>
+          )}
 
           <button
             className="btn btn-ghost"
@@ -89,27 +131,65 @@ export default function HolderPage() {
   );
 }
 
-type Stage = "generating" | "generated" | "submitting" | "confirmed";
+type Stage = "generating" | "generated" | "submitting" | "confirmed" | "error";
 
-function ProofFlow({ cred, onBack }: { cred: Cred; onBack: () => void }) {
+function ProofFlow({
+  cred,
+  holder,
+  onBack,
+}: {
+  cred: Cred;
+  holder: string;
+  onBack: () => void;
+}) {
   const [stage, setStage] = useState<Stage>("generating");
-  const proofHash = "0x4a3f8b2c91e07d2204a1f6b3c8e5d9e1";
-  const txHash = "5K8MdQ2pX9vR4tL7nB3wXP2N";
+  const [proof, setProof] = useState<{ proof: Uint8Array; publicInputs: Uint8Array } | null>(null);
+  const [txHash, setTxHash] = useState("");
+  const [error, setError] = useState("");
 
-  // Simulated timing for the demo. Real flow: generateProof() in lib/proof.ts
-  // (Noir + bb in WASM), then submit_proof() to ProofRegistry, await tx.
+  // 1. Generate the proof locally as soon as the flow opens.
   useEffect(() => {
-    if (stage === "generating") {
-      const t = setTimeout(() => setStage("generated"), 2200);
-      return () => clearTimeout(t);
-    }
-    if (stage === "submitting") {
-      const t = setTimeout(() => setStage("confirmed"), 1600);
-      return () => clearTimeout(t);
-    }
-  }, [stage]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await generateProof(cred.id, cred.inputs);
+        if (!cancelled) {
+          setProof(result);
+          setStage("generated");
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError((e as Error).message);
+          setStage("error");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cred]);
 
-  const done = (s: Stage[]) => s.includes(stage);
+  // 2. Submit to the ProofRegistry on user action.
+  async function onSubmit() {
+    if (!proof) return;
+    setStage("submitting");
+    try {
+      const hash = await submitProof({
+        holder,
+        credentialType: cred.id,
+        proof: proof.proof,
+        publicInputs: proof.publicInputs,
+        ttlSecs: 30 * 86_400,
+      });
+      setTxHash(hash);
+      setStage("confirmed");
+    } catch (e) {
+      setError((e as Error).message);
+      setStage("error");
+    }
+  }
+
+  const proofReady = stage === "generated" || stage === "submitting" || stage === "confirmed";
 
   return (
     <div className="reveal" style={{ maxWidth: 540, margin: "0 auto" }}>
@@ -128,12 +208,14 @@ function ProofFlow({ cred, onBack }: { cred: Cred; onBack: () => void }) {
         <div className="stack" style={{ gap: "1.25rem" }}>
           <Step
             active={stage === "generating"}
-            done={done(["generated", "submitting", "confirmed"])}
+            done={proofReady}
             title="Generate proof"
             detail={
               stage === "generating"
                 ? "Noir circuit running locally — private inputs stay on this device"
-                : `Proof ${truncateHash(proofHash)}`
+                : proof
+                  ? `Proof ${truncateHash("0x" + toHex(proof.proof).slice(0, 14))}`
+                  : "—"
             }
           />
           <Step
@@ -149,7 +231,7 @@ function ProofFlow({ cred, onBack }: { cred: Cred; onBack: () => void }) {
                   rel="noreferrer"
                   style={{ gap: "0.3rem", fontSize: "0.8125rem" }}
                 >
-                  {txHash.slice(0, 5)}…{txHash.slice(-4)}
+                  {txHash.slice(0, 6)}…{txHash.slice(-4)}
                   <IconExternalLink size={13} />
                 </a>
               ) : stage === "submitting" ? (
@@ -168,14 +250,30 @@ function ProofFlow({ cred, onBack }: { cred: Cred; onBack: () => void }) {
         </div>
 
         {stage === "generated" && (
-          <button
-            className="btn btn-primary"
-            style={{ marginTop: "1.5rem", width: "100%" }}
-            onClick={() => setStage("submitting")}
-          >
+          <button className="btn btn-primary" style={{ marginTop: "1.5rem", width: "100%" }} onClick={onSubmit}>
             Submit to Stellar
             <IconArrowRight size={15} />
           </button>
+        )}
+
+        {stage === "error" && (
+          <div
+            style={{
+              marginTop: "1.5rem",
+              padding: "1rem 1.25rem",
+              borderRadius: "var(--radius)",
+              border: "1px solid rgba(240,96,77,0.35)",
+              background: "rgba(240,96,77,0.08)",
+            }}
+          >
+            <div className="row" style={{ gap: "0.5rem", color: "var(--danger)", fontWeight: 500 }}>
+              <IconAlertTriangle size={16} />
+              Could not complete
+            </div>
+            <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.4rem" }}>
+              {error}
+            </div>
+          </div>
         )}
 
         {stage === "confirmed" && (
@@ -203,6 +301,12 @@ function ProofFlow({ cred, onBack }: { cred: Cred; onBack: () => void }) {
       </div>
     </div>
   );
+}
+
+function toHex(u8: Uint8Array): string {
+  return Array.from(u8.slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function Step({
@@ -235,23 +339,11 @@ function Step({
       >
         {done && <IconCheck size={13} stroke={3} />}
         {active && !done && (
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--accent)",
-            }}
-          />
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
         )}
       </span>
       <div style={{ flex: 1 }}>
-        <div
-          style={{
-            fontWeight: 500,
-            color: active || done ? "var(--text)" : "var(--muted)",
-          }}
-        >
+        <div style={{ fontWeight: 500, color: active || done ? "var(--text)" : "var(--muted)" }}>
           {title}
         </div>
         <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.15rem" }}>
