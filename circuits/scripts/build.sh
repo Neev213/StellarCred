@@ -48,6 +48,16 @@ build() {
   local json="target/${name}.json"
   local gz="target/${name}.gz"
 
+  # The commit helper is only ever executed (to derive commitments), never
+  # proven — compile and stage its JSON, nothing else.
+  if [ "$name" = "commit" ]; then
+    nargo compile
+    cp "$json" "$FRONTEND_CIRCUITS/commit.json"
+    echo "  -> frontend/public/circuits/commit.json"
+    popd >/dev/null
+    return
+  fi
+
   # Compile + VK are always possible (write_vk needs only the bytecode).
   nargo compile
   bb write_vk --scheme ultra_honk --oracle_hash keccak \
@@ -80,5 +90,5 @@ build() {
 if [ "$#" -gt 0 ]; then
   for n in "$@"; do build "$n"; done
 else
-  for n in kyc_proof age_proof jurisdiction_proof; do build "$n"; done
+  for n in commit kyc_proof age_proof jurisdiction_proof; do build "$n"; done
 fi
