@@ -4,6 +4,7 @@ import { useState } from "react";
 import { IconLock, IconCheck, IconCircle } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { Badge } from "@/components/Badge";
+import { ConfigBanner } from "@/components/ConfigBanner";
 import { isVerified } from "@/lib/contracts";
 
 interface Requirement {
@@ -44,6 +45,8 @@ export default function VerifierPage() {
         </div>
         <WalletButton onConnected={onConnected} />
       </div>
+
+      <ConfigBanner />
 
       <div className="grid grid-2" style={{ alignItems: "start", gap: "1.5rem" }}>
         <div className="card">

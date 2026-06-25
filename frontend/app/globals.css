@@ -114,6 +114,21 @@ h3 {
   margin: 0 auto;
   padding: 3rem 1.5rem 6rem;
 }
+
+@media (max-width: 560px) {
+  .container {
+    padding: 2rem 1.1rem 4rem;
+  }
+  .nav-inner {
+    padding: 0.75rem 1.1rem;
+  }
+  .nav-links {
+    gap: 0.1rem;
+  }
+  .nav-links a {
+    padding: 0.4rem 0.5rem;
+  }
+}
 .row {
   display: flex;
   align-items: center;
@@ -427,6 +442,15 @@ textarea:focus {
 }
 
 /* ---- Reveal motion ------------------------------------------------------- */
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .reveal {
   animation: fade-up 0.5s var(--ease) both;

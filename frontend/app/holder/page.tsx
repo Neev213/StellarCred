@@ -8,126 +8,163 @@ import {
   IconExternalLink,
   IconPlus,
   IconAlertTriangle,
+  IconTrash,
+  IconCertificate,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { Badge } from "@/components/Badge";
 import { Check } from "@/components/Check";
+import { ConfigBanner } from "@/components/ConfigBanner";
 import { truncateHash } from "@/lib/format";
-import { EXPLORER_TX, type CredentialType } from "@/lib/stellar";
+import { EXPLORER_TX } from "@/lib/stellar";
 import { generateProof } from "@/lib/proof";
 import { submitProof } from "@/lib/contracts";
-
-interface Cred {
-  id: CredentialType;
-  title: string;
-  claim: string;
-  issuer: string;
-  status: "active" | "pending";
-  // Private credential inputs the holder stores locally; fed to the circuit.
-  inputs: Record<string, unknown>;
-}
-
-const CREDENTIALS: Cred[] = [
-  {
-    id: "kyc",
-    title: "KYC Complete",
-    claim: "identity verified",
-    issuer: "StellarCred Authority",
-    status: "active",
-    inputs: {
-      preimage: "42",
-      commitment:
-        "0x255ee8299be9389b21052fd317f8cae762f9c89f756ac79262fb648a70ee7a08",
-    },
-  },
-  {
-    id: "age",
-    title: "Age Verified",
-    claim: "age ≥ 18",
-    issuer: "StellarCred Authority",
-    status: "pending",
-    inputs: {},
-  },
-  {
-    id: "income",
-    title: "Accredited Investor",
-    claim: "income > $200k",
-    issuer: "Employer Inc.",
-    status: "pending",
-    inputs: {},
-  },
-];
+import {
+  type Credential,
+  loadCredentials,
+  saveCredential,
+  removeCredential,
+  parseCredential,
+} from "@/lib/credential";
 
 export default function HolderPage() {
   const [address, setAddress] = useState("");
-  const [proving, setProving] = useState<Cred | null>(null);
+  const [creds, setCreds] = useState<Credential[]>([]);
+  const [proving, setProving] = useState<Credential | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => setCreds(loadCredentials()), []);
 
   return (
     <>
       <div className="between" style={{ marginBottom: "2.5rem" }}>
         <div>
           <span className="eyebrow">Holder</span>
-          <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>
-            Your credentials
-          </h1>
+          <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Your credentials</h1>
         </div>
         <WalletButton onConnected={setAddress} />
       </div>
 
+      <ConfigBanner />
+
       {proving ? (
-        <ProofFlow
-          cred={proving}
-          holder={address}
-          onBack={() => setProving(null)}
-        />
+        <ProofFlow cred={proving} holder={address} onBack={() => setProving(null)} />
       ) : (
         <div className="stack reveal" style={{ gap: "0.75rem" }}>
-          {CREDENTIALS.map((c) => (
-            <div className="card between" key={c.id} style={{ padding: "1.25rem 1.5rem" }}>
+          {creds.length === 0 && !importing && (
+            <div className="card" style={{ textAlign: "center", padding: "3rem 1.5rem" }}>
+              <IconCertificate size={28} stroke={1.5} className="muted" />
+              <h3 style={{ margin: "1rem 0 0.4rem" }}>No credentials yet</h3>
+              <p className="muted" style={{ fontSize: "0.9rem", maxWidth: 360, margin: "0 auto" }}>
+                Issue one on the Issuer page, or import a credential JSON you were
+                given.
+              </p>
+            </div>
+          )}
+
+          {creds.map((c) => (
+            <div className="card between" key={c.commitment} style={{ padding: "1.25rem 1.5rem" }}>
               <div>
                 <div className="row" style={{ gap: "0.6rem" }}>
                   <span style={{ fontWeight: 500 }}>{c.title}</span>
                   <span className="mono faint">{c.claim}</span>
                 </div>
                 <div className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.2rem" }}>
-                  Issued by {c.issuer}
+                  Issued by {c.issuer} · {truncateHash(c.commitment)}
                 </div>
               </div>
               <div className="row">
-                {c.status === "active" ? (
-                  <Badge variant="verified">Active</Badge>
-                ) : (
-                  <Badge variant="pending">Pending</Badge>
-                )}
+                <Badge variant="verified">Held</Badge>
                 <button
                   className="btn btn-primary btn-sm"
-                  disabled={c.status !== "active" || !address}
+                  disabled={!address}
                   title={!address ? "Connect a wallet first" : undefined}
                   onClick={() => setProving(c)}
                 >
                   Generate proof
                   <IconArrowRight size={14} />
                 </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  title="Remove from this browser"
+                  onClick={() => setCreds(removeCredential(c.commitment))}
+                >
+                  <IconTrash size={14} />
+                </button>
               </div>
             </div>
           ))}
 
-          {!address && (
+          {!address && creds.length > 0 && (
             <p className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.25rem" }}>
               Connect a wallet to generate and submit proofs.
             </p>
           )}
 
-          <button
-            className="btn btn-ghost"
-            style={{ alignSelf: "flex-start", marginTop: "0.5rem" }}
-          >
-            <IconPlus size={15} />
-            Import credential
-          </button>
+          {importing ? (
+            <ImportPanel
+              onImport={(c) => {
+                setCreds(saveCredential(c));
+                setImporting(false);
+              }}
+              onCancel={() => setImporting(false)}
+            />
+          ) : (
+            <button
+              className="btn btn-ghost"
+              style={{ alignSelf: "flex-start", marginTop: "0.5rem" }}
+              onClick={() => setImporting(true)}
+            >
+              <IconPlus size={15} />
+              Import credential
+            </button>
+          )}
         </div>
       )}
     </>
+  );
+}
+
+function ImportPanel({
+  onImport,
+  onCancel,
+}: {
+  onImport: (c: Credential) => void;
+  onCancel: () => void;
+}) {
+  const [json, setJson] = useState("");
+  const [error, setError] = useState("");
+
+  function onAdd() {
+    try {
+      onImport(parseCredential(json));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="card reveal">
+      <span className="eyebrow">Import credential</span>
+      <textarea
+        rows={6}
+        placeholder='{"type":"kyc","preimage":"0x…","commitment":"0x…", …}'
+        value={json}
+        onChange={(e) => setJson(e.target.value)}
+        style={{ marginTop: "0.75rem" }}
+      />
+      {error && (
+        <p style={{ color: "var(--danger)", fontSize: "0.8125rem", marginTop: "0.5rem" }}>{error}</p>
+      )}
+      <div className="row" style={{ marginTop: "1rem", gap: "0.6rem" }}>
+        <button className="btn btn-primary btn-sm" onClick={onAdd} disabled={!json.trim()}>
+          Add credential
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -138,7 +175,7 @@ function ProofFlow({
   holder,
   onBack,
 }: {
-  cred: Cred;
+  cred: Credential;
   holder: string;
   onBack: () => void;
 }) {
@@ -147,12 +184,14 @@ function ProofFlow({
   const [txHash, setTxHash] = useState("");
   const [error, setError] = useState("");
 
-  // 1. Generate the proof locally as soon as the flow opens.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const result = await generateProof(cred.id, cred.inputs);
+        const result = await generateProof(cred.type, {
+          preimage: cred.preimage,
+          commitment: cred.commitment,
+        });
         if (!cancelled) {
           setProof(result);
           setStage("generated");
@@ -169,14 +208,13 @@ function ProofFlow({
     };
   }, [cred]);
 
-  // 2. Submit to the ProofRegistry on user action.
   async function onSubmit() {
     if (!proof) return;
     setStage("submitting");
     try {
       const hash = await submitProof({
         holder,
-        credentialType: cred.id,
+        credentialType: cred.type,
         proof: proof.proof,
         publicInputs: proof.publicInputs,
         ttlSecs: 30 * 86_400,
@@ -212,9 +250,9 @@ function ProofFlow({
             title="Generate proof"
             detail={
               stage === "generating"
-                ? "Noir circuit running locally — private inputs stay on this device"
+                ? "Running the Noir circuit in your browser — this can take a few seconds. Your secret never leaves this device."
                 : proof
-                  ? `Proof ${truncateHash("0x" + toHex(proof.proof).slice(0, 14))}`
+                  ? `Proof ${truncateHash("0x" + toHex(proof.proof))} · ${proof.proof.length} bytes`
                   : "—"
             }
           />
@@ -270,9 +308,7 @@ function ProofFlow({
               <IconAlertTriangle size={16} />
               Could not complete
             </div>
-            <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.4rem" }}>
-              {error}
-            </div>
+            <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.4rem" }}>{error}</div>
           </div>
         )}
 
@@ -304,7 +340,7 @@ function ProofFlow({
 }
 
 function toHex(u8: Uint8Array): string {
-  return Array.from(u8.slice(0, 8))
+  return Array.from(u8.slice(0, 7))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
@@ -350,7 +386,7 @@ function Step({
           {detail}
         </div>
         {active && (
-          <div className="bar" style={{ marginTop: "0.6rem", maxWidth: 200 }}>
+          <div className="bar" style={{ marginTop: "0.6rem", maxWidth: 220 }}>
             <i />
           </div>
         )}
