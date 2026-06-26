@@ -1,44 +1,35 @@
 "use client";
 
-import { useState } from "react";
 import { IconWallet } from "@tabler/icons-react";
-import { connect } from "@/lib/wallet";
+import { useWallet } from "@/lib/wallet-context";
 import { truncateAddress } from "@/lib/format";
 
-export function WalletButton({
-  onConnected,
-}: {
-  onConnected?: (address: string) => void;
-}) {
-  const [address, setAddress] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function onClick() {
-    if (address) return;
-    setBusy(true);
-    try {
-      const addr = await connect();
-      setAddress(addr);
-      onConnected?.(addr);
-    } catch {
-      // dismissed
-    } finally {
-      setBusy(false);
-    }
-  }
+export function WalletButton() {
+  const { address, connecting, error, connect, disconnect } = useWallet();
 
   return (
-    <button
-      className={`btn ${address ? "btn-secondary" : "btn-primary"}`}
-      onClick={onClick}
-      disabled={busy}
-    >
-      <IconWallet size={15} />
-      {address
-        ? truncateAddress(address)
-        : busy
-          ? "Connecting…"
-          : "Connect wallet"}
-    </button>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.4rem" }}>
+      <button
+        className={`btn ${address ? "btn-secondary" : "btn-primary"}`}
+        onClick={address ? disconnect : connect}
+        disabled={connecting}
+        title={address ? "Click to disconnect" : undefined}
+      >
+        <IconWallet size={15} />
+        {address
+          ? truncateAddress(address)
+          : connecting
+            ? "Connecting…"
+            : "Connect wallet"}
+      </button>
+      {error && (
+        <span
+          className="mono"
+          style={{ color: "var(--danger)", fontSize: "0.7rem", maxWidth: 260, textAlign: "right" }}
+        >
+          {error}
+        </span>
+      )}
+    </div>
   );
 }

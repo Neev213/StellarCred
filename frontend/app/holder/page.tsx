@@ -12,6 +12,7 @@ import {
   IconCertificate,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
+import { useWallet } from "@/lib/wallet-context";
 import { Badge } from "@/components/Badge";
 import { Check } from "@/components/Check";
 import { ConfigBanner } from "@/components/ConfigBanner";
@@ -28,7 +29,7 @@ import {
 } from "@/lib/credential";
 
 export default function HolderPage() {
-  const [address, setAddress] = useState("");
+  const { address } = useWallet();
   const [creds, setCreds] = useState<Credential[]>([]);
   const [proving, setProving] = useState<Credential | null>(null);
   const [importing, setImporting] = useState(false);
@@ -42,7 +43,7 @@ export default function HolderPage() {
           <span className="eyebrow">Holder</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Your credentials</h1>
         </div>
-        <WalletButton onConnected={setAddress} />
+        <WalletButton />
       </div>
 
       <ConfigBanner />

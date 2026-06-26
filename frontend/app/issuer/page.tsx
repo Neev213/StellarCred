@@ -9,6 +9,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
+import { useWallet } from "@/lib/wallet-context";
 import { Badge } from "@/components/Badge";
 import { issueCredential, saveCredential, TYPE_META } from "@/lib/credential";
 import type { CredentialType } from "@/lib/stellar";
@@ -35,7 +36,7 @@ const COUNTRIES = [
 ];
 
 export default function IssuerPage() {
-  const [issuerId, setIssuerId] = useState("");
+  const { address: issuerId } = useWallet();
   const [holder, setHolder] = useState("");
   const [type, setType] = useState<CredentialType>("kyc");
   const [attribute, setAttribute] = useState(DEFAULT_ATTR.kyc);
@@ -87,7 +88,7 @@ export default function IssuerPage() {
           <span className="eyebrow">Issuer</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Issue a credential</h1>
         </div>
-        <WalletButton onConnected={setIssuerId} />
+        <WalletButton />
       </div>
 
       <div className="grid grid-2" style={{ alignItems: "start", gap: "1.5rem" }}>

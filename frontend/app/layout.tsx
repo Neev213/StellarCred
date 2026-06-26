@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { SiteNav } from "@/components/SiteNav";
+import { WalletProvider } from "@/lib/wallet-context";
 import "./globals.css";
 
 const body = Inter({
@@ -28,8 +29,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${body.variable} ${mono.variable}`}>
       <body>
-        <SiteNav />
-        <main className="container">{children}</main>
+        <WalletProvider>
+          <SiteNav />
+          <main className="container">{children}</main>
+        </WalletProvider>
       </body>
     </html>
   );

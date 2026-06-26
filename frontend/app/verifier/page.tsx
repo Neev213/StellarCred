@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { IconLock, IconCheck, IconCircle } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
+import { useWallet } from "@/lib/wallet-context";
 import { Badge } from "@/components/Badge";
 import { ConfigBanner } from "@/components/ConfigBanner";
 import { isVerified } from "@/lib/contracts";
@@ -13,7 +14,10 @@ interface Requirement {
   proved: boolean;
 }
 
+const REQ_TYPES = ["kyc", "age", "income"] as const;
+
 export default function VerifierPage() {
+  const { address } = useWallet();
   // PrivPool gates deposits on three credential proofs, read live from the
   // ProofRegistry once a wallet connects.
   const [reqs, setReqs] = useState<Requirement[]>([
@@ -25,17 +29,32 @@ export default function VerifierPage() {
   const [checked, setChecked] = useState(false);
   const eligible = reqs.every((r) => r.proved);
 
-  // Reflect real on-chain status for each requirement when a wallet connects.
-  async function onConnected(address: string) {
-    try {
-      const statuses = await Promise.all(reqs.map((r) => isVerified(address, r.type)));
-      setReqs((rs) => rs.map((r, i) => ({ ...r, proved: statuses[i].valid })));
-    } catch {
-      // contracts not deployed / account unfunded — requirements stay unmet
-    } finally {
-      setChecked(true);
+  // Reflect real on-chain status for each requirement whenever the connected
+  // wallet changes (including restored-on-reload connections).
+  useEffect(() => {
+    if (!address) {
+      setChecked(false);
+      return;
     }
-  }
+    let cancelled = false;
+    (async () => {
+      try {
+        const statuses = await Promise.all(
+          REQ_TYPES.map((t) => isVerified(address, t)),
+        );
+        if (!cancelled) {
+          setReqs((rs) => rs.map((r, i) => ({ ...r, proved: statuses[i].valid })));
+        }
+      } catch {
+        // contracts not deployed / account unfunded — requirements stay unmet
+      } finally {
+        if (!cancelled) setChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
 
   return (
     <>
@@ -44,7 +63,7 @@ export default function VerifierPage() {
           <span className="eyebrow">Gated protocol · demo</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>PrivPool</h1>
         </div>
-        <WalletButton onConnected={onConnected} />
+        <WalletButton />
       </div>
 
       <ConfigBanner />
