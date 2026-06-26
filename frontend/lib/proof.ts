@@ -63,22 +63,29 @@ function buildInputs(
   const value = String(credential.value);
   const salt = String(credential.salt);
   const commitment = String(credential.commitment);
+  // Issuer signature inputs, common to every circuit.
+  const sigInputs = {
+    sig: credential.sig as number[],
+    issuer_x: credential.issuerPubX as number[],
+    issuer_y: credential.issuerPubY as number[],
+  };
   switch (type) {
     case "age":
       return {
         date_of_birth: value,
         salt,
+        ...sigInputs,
         commitment,
         current_date: String(Math.floor(Date.now() / 86_400_000)),
         threshold_years: "18",
       };
     case "income":
-      return { income: value, salt, commitment, threshold: "200000" };
+      return { income: value, salt, ...sigInputs, commitment, threshold: "200000" };
     case "jurisdiction":
-      return { country_code: value, salt, commitment, restricted: RESTRICTED };
+      return { country_code: value, salt, ...sigInputs, commitment, restricted: RESTRICTED };
     case "kyc":
     default:
-      return { secret: value, salt, commitment };
+      return { secret: value, salt, ...sigInputs, commitment };
   }
 }
 

@@ -15,6 +15,17 @@ const VK: &[u8] = include_bytes!("../../../fixtures/kyc/vk");
 const PROOF: &[u8] = include_bytes!("../../../fixtures/kyc/proof");
 const PUBLIC_INPUTS: &[u8] = include_bytes!("../../../fixtures/kyc/public_inputs");
 
+// The issuer secp256k1 key (x || y) the fixtures were signed with, read straight
+// out of the proof's public inputs (fields 1..65, low byte of each 32-byte
+// field) so the registered key always matches what the proof attests to.
+fn demo_pubkey(env: &Env) -> BytesN<64> {
+    let mut arr = [0u8; 64];
+    for i in 0..64usize {
+        arr[i] = PUBLIC_INPUTS[(1 + i) * 32 + 31];
+    }
+    BytesN::from_array(env, &arr)
+}
+
 struct Harness {
     registry: ProofRegistryClient<'static>,
     issuer: Address,
@@ -29,7 +40,7 @@ fn deploy(env: &Env) -> Harness {
     let issuer = Address::generate(env);
     ir.register_issuer(
         &issuer,
-        &BytesN::from_array(env, &[9u8; 32]),
+        &demo_pubkey(env),
         &vec![env, symbol_short!("kyc")],
     );
 
@@ -83,6 +94,40 @@ fn expires_after_ledger_time_passes() {
     // Advance ledger time past the expiry.
     env.ledger().with_mut(|li| li.timestamp = 2000);
     assert!(!h.registry.is_verified(&holder, &symbol_short!("kyc")).0);
+}
+
+#[test]
+fn rejects_wrong_issuer_key() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+
+    // Register the issuer with a DIFFERENT key than the one the proof was signed
+    // with, so the public-input pubkey will not match.
+    let ir_id = env.register(IssuerRegistry, (admin.clone(),));
+    let issuer = Address::generate(&env);
+    IssuerRegistryClient::new(&env, &ir_id).register_issuer(
+        &issuer,
+        &BytesN::from_array(&env, &[3u8; 64]),
+        &vec![&env, symbol_short!("kyc")],
+    );
+    let v_id = env.register(CredentialVerifier, (admin,));
+    CredentialVerifierClient::new(&env, &v_id)
+        .set_vk(&symbol_short!("kyc"), &Bytes::from_slice(&env, VK));
+    let pr_id = env.register(ProofRegistry, (v_id, ir_id));
+    let registry = ProofRegistryClient::new(&env, &pr_id);
+
+    let holder = Address::generate(&env);
+    let res = registry.try_submit_proof(
+        &holder,
+        &issuer,
+        &symbol_short!("kyc"),
+        &Bytes::from_slice(&env, PROOF),
+        &Bytes::from_slice(&env, PUBLIC_INPUTS),
+        &1000,
+    );
+    assert!(res.is_err());
+    assert!(!registry.is_verified(&holder, &symbol_short!("kyc")).0);
 }
 
 #[test]

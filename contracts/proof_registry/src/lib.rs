@@ -12,7 +12,7 @@
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, panic_with_error,
-    symbol_short, Address, Bytes, Env, Symbol,
+    symbol_short, Address, Bytes, BytesN, Env, Symbol,
 };
 
 // Persistent-entry lifetime management (~5s ledgers).
@@ -35,7 +35,15 @@ pub trait VerifierInterface {
 #[contractclient(name = "IssuerClient")]
 pub trait IssuerRegistryInterface {
     fn is_valid_issuer(env: Env, issuer_id: Address, credential_type: Symbol) -> bool;
+    fn get_issuer_pubkey(env: Env, issuer_id: Address) -> BytesN<64>;
 }
+
+// Public-input layout (each field is 32 bytes, big-endian): field 0 is the
+// commitment, fields 1..33 are issuer_x bytes (one byte per field, in the low
+// byte), fields 33..65 are issuer_y bytes. The signed public key therefore
+// occupies bytes 32..2080 of `public_inputs`.
+const PUBKEY_START_FIELD: u32 = 1;
+const FIELD_BYTES: u32 = 32;
 
 #[contracttype]
 #[derive(Clone)]
@@ -61,6 +69,9 @@ pub enum Error {
     UnknownCredentialType = 3,
     NotAuthorized = 4,
     IssuerNotTrusted = 5,
+    /// The public key the proof was made against does not match the registered
+    /// issuer's key.
+    IssuerKeyMismatch = 6,
 }
 
 #[contract]
@@ -96,7 +107,15 @@ impl ProofRegistry {
             panic_with_error!(&env, Error::IssuerNotTrusted);
         }
 
-        // 2. The proof must verify against the registered VK.
+        // 2. The public key the proof attests to (in its public inputs) must be
+        //    the registered issuer's key. Without this, a proof could be made
+        //    against an attacker-controlled key.
+        let expected = registry.get_issuer_pubkey(&issuer_id);
+        if !Self::public_inputs_match_pubkey(&public_inputs, &expected) {
+            panic_with_error!(&env, Error::IssuerKeyMismatch);
+        }
+
+        // 3. The proof must verify against the registered VK.
         let verifier = VerifierClient::new(&env, &Self::verifier(&env));
         let ok = Self::dispatch_verify(&env, &verifier, &credential_type, &proof, &public_inputs);
         if !ok {
@@ -164,6 +183,20 @@ impl ProofRegistry {
         } else {
             panic_with_error!(env, Error::UnknownCredentialType)
         }
+    }
+
+    /// True iff the secp256k1 public key embedded in `public_inputs` (fields
+    /// 1..65, one byte per field in the low byte) equals `expected` (x || y).
+    fn public_inputs_match_pubkey(public_inputs: &Bytes, expected: &BytesN<64>) -> bool {
+        let exp = expected.to_array();
+        for i in 0..64u32 {
+            let offset = (PUBKEY_START_FIELD + i) * FIELD_BYTES + (FIELD_BYTES - 1);
+            match public_inputs.get(offset) {
+                Some(b) if b == exp[i as usize] => {}
+                _ => return false,
+            }
+        }
+        true
     }
 
     fn verifier(env: &Env) -> Address {

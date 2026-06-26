@@ -9,6 +9,7 @@
 // jurisdiction) without revealing it.
 
 import type { CredentialType } from "./stellar";
+import { signCommitment } from "./issuer-sign";
 
 export interface Credential {
   type: CredentialType;
@@ -24,8 +25,11 @@ export interface Credential {
   salt: string;
   /** Poseidon2([value, salt], 2). */
   commitment: string;
-  /** Issuer attestation. Placeholder until in-circuit signature verification. */
-  signature: string;
+  /** Issuer's secp256k1 ECDSA signature over the commitment (64 bytes). */
+  sig: number[];
+  /** Issuer secp256k1 public key coordinates (32 bytes each). */
+  issuerPubX: number[];
+  issuerPubY: number[];
   issuedAt: number;
   expiry: string;
 }
@@ -99,6 +103,7 @@ export async function issueCredential(opts: {
   const value = attributeToValue(opts.type, opts.attribute);
   const salt = randomField();
   const commitment = await poseidonCommit(value, salt);
+  const { sig, issuerX, issuerY } = signCommitment(commitment);
   const meta = TYPE_META[opts.type];
   return {
     type: opts.type,
@@ -110,7 +115,9 @@ export async function issueCredential(opts: {
     value,
     salt,
     commitment,
-    signature: "unsigned-demo",
+    sig,
+    issuerPubX: issuerX,
+    issuerPubY: issuerY,
     issuedAt: Math.floor(Date.now() / 1000),
     expiry: opts.expiry,
   };
@@ -147,8 +154,8 @@ export function removeCredential(commitment: string): Credential[] {
 
 export function parseCredential(json: string): Credential {
   const c = JSON.parse(json);
-  if (!c.type || c.value === undefined || !c.commitment || !c.issuerId) {
-    throw new Error("Not a valid credential (missing type, value, commitment, or issuerId).");
+  if (!c.type || c.value === undefined || !c.commitment || !c.issuerId || !c.sig) {
+    throw new Error("Not a valid credential (missing type, value, commitment, issuerId, or sig).");
   }
   return c as Credential;
 }

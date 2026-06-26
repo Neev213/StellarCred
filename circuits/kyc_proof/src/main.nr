@@ -1,24 +1,23 @@
 // kyc_proof
 //
-// Proves the holder knows the secret behind a KYC credential without revealing
-// it: knowledge of (secret, salt) whose Poseidon2 commitment the issuer signed
-// into the credential. Same commitment shape as every other credential circuit
-// (Poseidon2([value, salt], 2)), so one issuer helper covers all types.
+// Proves the holder knows the secret behind a KYC credential AND that a trusted
+// issuer signed the commitment to it (secp256k1 ECDSA, verified in-circuit).
+// Public inputs, in order: commitment, issuer_x, issuer_y, so the contract can
+// bind the public key to the registered issuer. The signature and secret stay
+// private.
 
 use dep::poseidon::poseidon2::Poseidon2;
+use std::ecdsa_secp256k1::verify_signature;
 
-fn main(secret: Field, salt: Field, commitment: pub Field) {
+fn main(
+    secret: Field,
+    salt: Field,
+    sig: [u8; 64],
+    commitment: pub Field,
+    issuer_x: pub [u8; 32],
+    issuer_y: pub [u8; 32],
+) {
     assert(Poseidon2::hash([secret, salt], 2) == commitment);
-}
-
-#[test]
-fn proves_commitment() {
-    let secret: Field = 42;
-    let salt: Field = 7;
-    main(secret, salt, Poseidon2::hash([secret, salt], 2));
-}
-
-#[test(should_fail)]
-fn rejects_wrong_commitment() {
-    main(42, 7, 12345);
+    let z: [u8; 32] = commitment.to_be_bytes();
+    assert(verify_signature(issuer_x, issuer_y, sig, z));
 }

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Regenerate Prover.toml for every credential circuit: compute the Poseidon2
+# commitment (via the commit circuit) and the issuer's Schnorr signature over it
+# (via sign.js), then write the circuit inputs. Run before circuits/scripts/build.sh.
+set -euo pipefail
+export PATH="$HOME/.nargo/bin:$HOME/.bb/bin:$PATH"
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPTS="$ROOT/scripts"
+COMMIT="$ROOT/commit"
+
+commit() { # value salt -> canonical decimal commitment
+  printf 'value = "%s"\nsalt = "%s"\n' "$1" "$2" > "$COMMIT/Prover.toml"
+  local raw
+  raw=$(cd "$COMMIT" && nargo execute 2>&1 | grep "Circuit output" | sed -E 's/.*Field\((-?[0-9]+)\).*/\1/')
+  RAW="$raw" node -e 'const r=21888242871839275222246405745257275088548364400416034343698204186575808495617n;let x=BigInt(process.env.RAW);if(x<0n)x+=r;console.log(x.toString())'
+}
+
+echo "kyc_proof..."
+C=$(commit 42 7)
+{ echo "secret = \"42\""; echo "salt = \"7\""; echo "commitment = \"$C\""; node "$SCRIPTS/sign.js" "$C"; } \
+  > "$ROOT/kyc_proof/Prover.toml"
+
+echo "age_proof..."
+C=$(commit 3650 12345)
+{ echo "date_of_birth = \"3650\""; echo "salt = \"12345\""; echo "commitment = \"$C\""; \
+  echo "current_date = \"20000\""; echo "threshold_years = \"18\""; node "$SCRIPTS/sign.js" "$C"; } \
+  > "$ROOT/age_proof/Prover.toml"
+
+echo "income_proof..."
+C=$(commit 250000 99)
+{ echo "income = \"250000\""; echo "salt = \"99\""; echo "commitment = \"$C\""; \
+  echo "threshold = \"200000\""; node "$SCRIPTS/sign.js" "$C"; } \
+  > "$ROOT/income_proof/Prover.toml"
+
+echo "jurisdiction_proof..."
+C=$(commit 566 77)
+{ echo "country_code = \"566\""; echo "salt = \"77\""; echo "commitment = \"$C\""; \
+  echo "restricted = [\"840\", \"364\", \"408\", \"0\", \"0\", \"0\", \"0\", \"0\"]"; node "$SCRIPTS/sign.js" "$C"; } \
+  > "$ROOT/jurisdiction_proof/Prover.toml"
+
+echo "done. demo issuer public key:"
+node "$SCRIPTS/sign.js" --pubkey

@@ -43,13 +43,15 @@ echo "Deploying gated_pool (-> registry)..."
 GATED_POOL_ID="$(deploy gated_pool --registry "$PROOF_REGISTRY_ID")"
 
 echo "Registering deployer as a trusted issuer for all credential types..."
+# secp256k1 public key (x || y, 64 bytes) of the demo issuer that signs credentials.
+ISSUER_PUBKEY="$(node circuits/scripts/sign.js --pubkey-hex)"
 stellar contract invoke \
   --id "$ISSUER_REGISTRY_ID" \
   --source "$SOURCE" --network "$NETWORK" \
   --send yes \
   -- register_issuer \
   --issuer_id "$ADMIN" \
-  --pubkey 0000000000000000000000000000000000000000000000000000000000000000 \
+  --pubkey "$ISSUER_PUBKEY" \
   --credential_types '["kyc","age","income","jurisdiction"]'
 
 for type in kyc age income jurisdiction; do

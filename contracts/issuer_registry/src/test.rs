@@ -16,7 +16,7 @@ fn register_and_query() {
     let (_admin, client) = setup(&env);
 
     let issuer = Address::generate(&env);
-    let pubkey = BytesN::from_array(&env, &[7u8; 32]);
+    let pubkey = BytesN::from_array(&env, &[7u8; 64]);
     let types = vec![&env, symbol_short!("kyc"), symbol_short!("age")];
 
     client.register_issuer(&issuer, &pubkey, &types);
@@ -34,7 +34,7 @@ fn revoked_issuer_is_invalid() {
     let (_admin, client) = setup(&env);
 
     let issuer = Address::generate(&env);
-    let pubkey = BytesN::from_array(&env, &[1u8; 32]);
+    let pubkey = BytesN::from_array(&env, &[1u8; 64]);
     client.register_issuer(&issuer, &pubkey, &vec![&env, symbol_short!("kyc")]);
     assert!(client.is_valid_issuer(&issuer, &symbol_short!("kyc")));
 

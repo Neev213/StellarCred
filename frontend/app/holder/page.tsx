@@ -188,11 +188,10 @@ function ProofFlow({
     let cancelled = false;
     (async () => {
       try {
-        const result = await generateProof(cred.type, {
-          value: cred.value,
-          salt: cred.salt,
-          commitment: cred.commitment,
-        });
+        const result = await generateProof(
+          cred.type,
+          cred as unknown as Record<string, unknown>,
+        );
         if (!cancelled) {
           setProof(result);
           setStage("generated");

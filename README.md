@@ -63,17 +63,24 @@ and the full path (GatedPool → ProofRegistry → IssuerRegistry + CredentialVe
 credential types.
 
 What works today:
-- All four contracts build to wasm on soroban-sdk 26; **20 contract tests pass**,
+- All four contracts build to wasm on soroban-sdk 26; **21 contract tests pass**,
   including real proof verification for `kyc`/`age`/`income`/`jurisdiction`, an
-  untrusted-issuer rejection, and a proof-expiry test that advances ledger time.
-- `submit_proof` checks `IssuerRegistry.is_valid_issuer(issuer_id, type)` before
-  verifying, and persistent writes extend their TTL.
+  untrusted-issuer rejection, a wrong-issuer-key rejection, and a proof-expiry
+  test that advances ledger time.
+- **Issuer signature verified in zero-knowledge.** Each circuit verifies the
+  issuer's secp256k1 ECDSA signature over the commitment
+  (`std::ecdsa_secp256k1`), with the issuer public key as a public input.
+  `submit_proof` checks `IssuerRegistry.is_valid_issuer(issuer_id, type)` AND
+  binds the proof's public-input key to the issuer's registered key — so a proof
+  only passes if a registered issuer actually signed the credential. Persistent
+  writes extend their TTL.
 - `circuits/scripts/build.sh` builds every circuit, commits VK + proof fixtures,
   and stages circuit JSON for the browser prover.
 - Real end-to-end product flow: the Issuer page generates a secret, computes the
-  Poseidon commitment via the `commit` circuit, and issues a credential; the
-  Holder page generates a real UltraHonk proof (`noir_js` + `bb.js`) and submits
-  it on-chain; the Demo page reads `is_verified` for all gated types.
+  Poseidon commitment via the `commit` circuit, signs it (secp256k1), and issues
+  a credential; the Holder page generates a real UltraHonk proof (`noir_js` +
+  `bb.js`) that verifies the signature in-circuit and submits it on-chain; the
+  Demo page reads `is_verified` for all gated types.
 
 Still to wire:
 - **Deploy + click-through.** Everything builds, typechecks, and serves; a live
@@ -89,15 +96,15 @@ Still to wire:
   the verifier crate. The VK is deterministic from the circuit; our `kyc_proof`
   VK is byte-identical to the reference identity circuit's.
 
-Known gaps (honest, not blockers for the demo):
-1. **Issuer ↔ commitment binding is not cryptographic yet.** `submit_proof` now
-   verifies the named `issuer_id` is registered and trusted
-   (`IssuerRegistry.is_valid_issuer`), but the ZK proof only proves knowledge of
-   a commitment pre-image — it does **not** prove the issuer signed that
-   commitment. The credential `signature` field is therefore a placeholder
-   (`"unsigned-demo"`). The hardening step is to have the issuer sign the
-   commitment (ed25519/Schnorr) and verify that signature inside the circuit
-   against the issuer's registered `pubkey`.
+Notes:
+1. **Issuer ↔ commitment binding is cryptographic.** The issuer signs the
+   commitment with secp256k1; the circuit verifies that signature in-circuit
+   (`std::ecdsa_secp256k1`) against the issuer public key (a public input), and
+   `ProofRegistry` checks that public-input key equals the issuer's registered
+   key. So a proof is only accepted if a registered issuer actually signed the
+   credential. (The demo issuer key lives client-side for convenience in
+   `lib/issuer-sign.ts` / `circuits/scripts/sign.js`; a production issuer signs
+   server-side and never ships its secret key.)
 2. **Proof expiry storage.** ProofRegistry uses `persistent` storage with an
    explicit `expiry` field (checked against ledger time) plus TTL extension;
    `temporary` storage (ledger-enforced auto-TTL) is an alternative.

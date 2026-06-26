@@ -22,9 +22,11 @@ const ENTRY_TTL: u32 = 120 * DAY_IN_LEDGERS;
 #[contracttype]
 #[derive(Clone)]
 pub struct Issuer {
-    /// Public key the issuer signs credentials with (consumed by the ZK circuit
-    /// as a public input, so a proof can attest "signed by this issuer").
-    pub pubkey: BytesN<32>,
+    /// secp256k1 public key (x || y, 32 bytes each) the issuer signs credentials
+    /// with. A proof carries this key as a public input; ProofRegistry checks it
+    /// matches this registered value, so a proof can only pass if a registered
+    /// issuer actually signed the credential commitment.
+    pub pubkey: BytesN<64>,
     /// Credential types this issuer is trusted to attest.
     pub credential_types: Vec<Symbol>,
     pub revoked: bool,
@@ -58,7 +60,7 @@ impl IssuerRegistry {
     pub fn register_issuer(
         env: Env,
         issuer_id: Address,
-        pubkey: BytesN<32>,
+        pubkey: BytesN<64>,
         credential_types: Vec<Symbol>,
     ) {
         Self::require_admin(&env);
@@ -91,8 +93,8 @@ impl IssuerRegistry {
             .extend_ttl(&key, BUMP_THRESHOLD, ENTRY_TTL);
     }
 
-    /// Look up an issuer's credential-signing public key.
-    pub fn get_issuer_pubkey(env: Env, issuer_id: Address) -> BytesN<32> {
+    /// Look up an issuer's credential-signing public key (secp256k1 x || y).
+    pub fn get_issuer_pubkey(env: Env, issuer_id: Address) -> BytesN<64> {
         Self::load_issuer(&env, &issuer_id).pubkey
     }
 

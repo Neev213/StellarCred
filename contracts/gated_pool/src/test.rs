@@ -11,6 +11,16 @@ const VK: &[u8] = include_bytes!("../../../fixtures/kyc/vk");
 const PROOF: &[u8] = include_bytes!("../../../fixtures/kyc/proof");
 const PUBLIC_INPUTS: &[u8] = include_bytes!("../../../fixtures/kyc/public_inputs");
 
+// Issuer key (x || y) the fixtures were signed with, read from the proof's
+// public inputs so the registered key matches what the proof attests to.
+fn demo_pubkey(env: &Env) -> BytesN<64> {
+    let mut arr = [0u8; 64];
+    for i in 0..64usize {
+        arr[i] = PUBLIC_INPUTS[(1 + i) * 32 + 31];
+    }
+    BytesN::from_array(env, &arr)
+}
+
 struct Harness {
     registry: ProofRegistryClient<'static>,
     pool: GatedPoolClient<'static>,
@@ -24,7 +34,7 @@ fn deploy(env: &Env) -> Harness {
     let issuer = Address::generate(env);
     IssuerRegistryClient::new(env, &ir_id).register_issuer(
         &issuer,
-        &BytesN::from_array(env, &[9u8; 32]),
+        &demo_pubkey(env),
         &vec![env, symbol_short!("kyc")],
     );
 
