@@ -703,6 +703,7 @@ name = "gated_pool"
 version = "0.0.0"
 dependencies = [
  "credential_verifier",
+ "issuer_registry",
  "proof_registry",
  "soroban-sdk",
 ]
@@ -1093,6 +1094,7 @@ name = "proof_registry"
 version = "0.0.0"
 dependencies = [
  "credential_verifier",
+ "issuer_registry",
  "soroban-sdk",
 ]
 

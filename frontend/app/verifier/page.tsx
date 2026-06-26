@@ -9,30 +9,31 @@ import { isVerified } from "@/lib/contracts";
 
 interface Requirement {
   label: string;
+  type: string;
   proved: boolean;
 }
 
 export default function VerifierPage() {
+  // PrivPool gates deposits on three credential proofs, read live from the
+  // ProofRegistry once a wallet connects.
   const [reqs, setReqs] = useState<Requirement[]>([
-    { label: "KYC verified", proved: true },
-    { label: "Age ≥ 18", proved: true },
-    { label: "Accredited investor", proved: false },
+    { label: "KYC verified", type: "kyc", proved: false },
+    { label: "Age ≥ 18", type: "age", proved: false },
+    { label: "Accredited investor", type: "income", proved: false },
   ]);
   const [amount, setAmount] = useState("5,000");
+  const [checked, setChecked] = useState(false);
   const eligible = reqs.every((r) => r.proved);
 
-  // When a wallet connects, reflect the real on-chain KYC status if the
-  // contracts are deployed; otherwise the demo defaults stand.
+  // Reflect real on-chain status for each requirement when a wallet connects.
   async function onConnected(address: string) {
     try {
-      const status = await isVerified(address, "kyc");
-      setReqs((rs) =>
-        rs.map((r) =>
-          r.label === "KYC verified" ? { ...r, proved: status.valid } : r,
-        ),
-      );
+      const statuses = await Promise.all(reqs.map((r) => isVerified(address, r.type)));
+      setReqs((rs) => rs.map((r, i) => ({ ...r, proved: statuses[i].valid })));
     } catch {
-      // contracts not deployed / account unfunded — keep demo defaults
+      // contracts not deployed / account unfunded — requirements stay unmet
+    } finally {
+      setChecked(true);
     }
   }
 
@@ -81,14 +82,11 @@ export default function VerifierPage() {
             ))}
           </div>
 
-          {!eligible && (
-            <button
-              className="btn btn-secondary"
-              style={{ marginTop: "1.25rem", width: "100%" }}
-              onClick={() => setReqs((rs) => rs.map((r) => ({ ...r, proved: true })))}
-            >
-              Prove remaining eligibility
-            </button>
+          {checked && !eligible && (
+            <p className="faint" style={{ marginTop: "1.25rem", fontSize: "0.8125rem" }}>
+              Missing proofs? Generate and submit them on the Holder page, then
+              reconnect here.
+            </p>
           )}
         </div>
 

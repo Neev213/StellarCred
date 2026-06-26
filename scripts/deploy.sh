@@ -7,7 +7,8 @@
 #   SOURCE=deployer ./scripts/deploy.sh
 #
 # Requires stellar CLI v26+ (the verifier uses BN254 host functions / protocol
-# 23). Registers the kyc circuit's verification key so the system works as-is.
+# 23). Registers the deployer as a trusted issuer and installs all VKs, so the
+# system works as-is. The issuer wallet to connect in the UI is the deployer.
 set -euo pipefail
 
 SOURCE="${SOURCE:-deployer}"
@@ -35,13 +36,23 @@ ISSUER_REGISTRY_ID="$(deploy issuer_registry --admin "$ADMIN")"
 echo "Deploying credential_verifier..."
 CREDENTIAL_VERIFIER_ID="$(deploy credential_verifier --admin "$ADMIN")"
 
-echo "Deploying proof_registry (-> verifier)..."
-PROOF_REGISTRY_ID="$(deploy proof_registry --verifier "$CREDENTIAL_VERIFIER_ID")"
+echo "Deploying proof_registry (-> verifier, issuer_registry)..."
+PROOF_REGISTRY_ID="$(deploy proof_registry --verifier "$CREDENTIAL_VERIFIER_ID" --issuer_registry "$ISSUER_REGISTRY_ID")"
 
 echo "Deploying gated_pool (-> registry)..."
 GATED_POOL_ID="$(deploy gated_pool --registry "$PROOF_REGISTRY_ID")"
 
-for type in kyc age jurisdiction; do
+echo "Registering deployer as a trusted issuer for all credential types..."
+stellar contract invoke \
+  --id "$ISSUER_REGISTRY_ID" \
+  --source "$SOURCE" --network "$NETWORK" \
+  --send yes \
+  -- register_issuer \
+  --issuer_id "$ADMIN" \
+  --pubkey 0000000000000000000000000000000000000000000000000000000000000000 \
+  --credential_types '["kyc","age","income","jurisdiction"]'
+
+for type in kyc age income jurisdiction; do
   vk="fixtures/$type/vk"
   [ -f "$vk" ] || { echo "skip $type (no VK — run circuits/scripts/build.sh)"; continue; }
   echo "Registering $type verification key..."

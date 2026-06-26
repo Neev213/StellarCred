@@ -18,6 +18,11 @@ use soroban_sdk::{
 };
 use ultrahonk_soroban_verifier::{UltraHonkVerifier, PROOF_BYTES};
 
+// Persistent-entry lifetime management (~5s ledgers). VKs are long-lived.
+const DAY_IN_LEDGERS: u32 = 17280;
+const VK_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
+const VK_TTL: u32 = 180 * DAY_IN_LEDGERS;
+
 #[contracttype]
 pub enum DataKey {
     Admin,
@@ -51,9 +56,11 @@ impl CredentialVerifier {
         if UltraHonkVerifier::new(&env, &vk).is_err() {
             panic_with_error!(&env, Error::VkInvalid);
         }
+        let key = DataKey::Vk(credential_type);
+        env.storage().persistent().set(&key, &vk);
         env.storage()
             .persistent()
-            .set(&DataKey::Vk(credential_type), &vk);
+            .extend_ttl(&key, VK_BUMP_THRESHOLD, VK_TTL);
     }
 
     pub fn verify_kyc_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool {

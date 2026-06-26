@@ -18,14 +18,40 @@ const TYPES = Object.entries(TYPE_META) as [
   (typeof TYPE_META)[CredentialType],
 ][];
 
+// Sensible default attribute per type (the issuer can change it).
+const DEFAULT_ATTR: Record<CredentialType, string> = {
+  kyc: "",
+  age: "1995-06-15",
+  income: "250000",
+  jurisdiction: "566",
+};
+
+const COUNTRIES = [
+  { code: "566", name: "Nigeria" },
+  { code: "276", name: "Germany" },
+  { code: "356", name: "India" },
+  { code: "840", name: "United States (restricted)" },
+  { code: "364", name: "Iran (restricted)" },
+];
+
 export default function IssuerPage() {
+  const [issuerId, setIssuerId] = useState("");
   const [holder, setHolder] = useState("");
   const [type, setType] = useState<CredentialType>("kyc");
+  const [attribute, setAttribute] = useState(DEFAULT_ATTR.kyc);
   const [expiry, setExpiry] = useState("90 days");
   const [issued, setIssued] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+
+  const meta = TYPE_META[type];
+  const needsAttr = !!meta.attribute;
+
+  function onType(t: CredentialType) {
+    setType(t);
+    setAttribute(DEFAULT_ATTR[t]);
+  }
 
   async function onIssue() {
     setBusy(true);
@@ -35,8 +61,10 @@ export default function IssuerPage() {
       const cred = await issueCredential({
         type,
         holder,
-        issuer: "StellarCred Authority",
+        issuerId,
+        issuerName: "StellarCred Authority",
         expiry,
+        attribute,
       });
       saveCredential(cred); // appears in the Holder dashboard (same browser)
       setIssued(JSON.stringify(cred, null, 2));
@@ -59,7 +87,7 @@ export default function IssuerPage() {
           <span className="eyebrow">Issuer</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Issue a credential</h1>
         </div>
-        <WalletButton />
+        <WalletButton onConnected={setIssuerId} />
       </div>
 
       <div className="grid grid-2" style={{ alignItems: "start", gap: "1.5rem" }}>
@@ -70,14 +98,10 @@ export default function IssuerPage() {
           <div className="grid grid-2" style={{ marginTop: "1.25rem", gap: "1rem" }}>
             <div>
               <label className="field-label">Credential type</label>
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value as CredentialType)}
-              >
-                {TYPES.map(([key, meta]) => (
-                  <option key={key} value={key} disabled={!meta.issuable}>
-                    {meta.title}
-                    {meta.issuable ? "" : " (soon)"}
+              <select value={type} onChange={(e) => onType(e.target.value as CredentialType)}>
+                {TYPES.map(([key, m]) => (
+                  <option key={key} value={key}>
+                    {m.title}
                   </option>
                 ))}
               </select>
@@ -92,18 +116,43 @@ export default function IssuerPage() {
             </div>
           </div>
 
+          {needsAttr && (
+            <div style={{ marginTop: "1.25rem" }}>
+              <label className="field-label">{meta.attribute}</label>
+              {type === "age" ? (
+                <input type="date" value={attribute} onChange={(e) => setAttribute(e.target.value)} />
+              ) : type === "jurisdiction" ? (
+                <select value={attribute} onChange={(e) => setAttribute(e.target.value)}>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name} ({c.code})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="number"
+                  value={attribute}
+                  onChange={(e) => setAttribute(e.target.value)}
+                />
+              )}
+            </div>
+          )}
+
           <div className="row faint" style={{ marginTop: "1.25rem", fontSize: "0.8125rem" }}>
             <IconKey size={14} />
             <span>
-              A fresh secret is generated and committed with Poseidon2 — the holder
-              proves it without revealing it.
+              {needsAttr
+                ? "The attribute is committed with Poseidon2 and stays private — the holder proves a claim about it."
+                : "A fresh secret is generated and committed with Poseidon2 — the holder proves it without revealing it."}
             </span>
           </div>
 
           <button
             className="btn btn-primary"
             style={{ marginTop: "1.5rem", width: "100%" }}
-            disabled={!holder || busy}
+            disabled={!holder || !issuerId || (needsAttr && !attribute) || busy}
+            title={!issuerId ? "Connect the issuer wallet first" : undefined}
             onClick={onIssue}
           >
             {busy ? (
@@ -118,8 +167,13 @@ export default function IssuerPage() {
               </>
             )}
           </button>
+          {!issuerId && (
+            <p className="faint" style={{ marginTop: "0.6rem", fontSize: "0.8125rem" }}>
+              Connect the registered issuer wallet to issue.
+            </p>
+          )}
           {error && (
-            <p className="badge-deny" style={{ marginTop: "0.75rem", fontSize: "0.8125rem", color: "var(--danger)" }}>
+            <p style={{ marginTop: "0.6rem", fontSize: "0.8125rem", color: "var(--danger)" }}>
               {error}
             </p>
           )}
@@ -147,7 +201,7 @@ export default function IssuerPage() {
                 wordBreak: "break-word",
                 color: "var(--muted)",
                 lineHeight: 1.7,
-                maxHeight: 360,
+                maxHeight: 380,
                 overflow: "auto",
               }}
             >

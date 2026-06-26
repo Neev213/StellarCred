@@ -40,13 +40,14 @@ export interface VerificationStatus {
  */
 export async function submitProof(params: {
   holder: string;
+  issuerId: string;
   credentialType: string;
   proof: Uint8Array;
   publicInputs: Uint8Array;
   /** Validity window in seconds from now. */
   ttlSecs: number;
 }): Promise<string> {
-  const { holder, credentialType, proof, publicInputs, ttlSecs } = params;
+  const { holder, issuerId, credentialType, proof, publicInputs, ttlSecs } = params;
   if (!CONTRACTS.proofRegistry) {
     throw new Error(
       "ProofRegistry contract id not set. Deploy the contracts and fill NEXT_PUBLIC_PROOF_REGISTRY_ID.",
@@ -64,6 +65,7 @@ export async function submitProof(params: {
   const op = contract.call(
     "submit_proof",
     Address.fromString(holder).toScVal(),
+    Address.fromString(issuerId).toScVal(),
     nativeToScVal(credentialType, { type: "symbol" }),
     xdr.ScVal.scvBytes(Buffer.from(proof)),
     xdr.ScVal.scvBytes(Buffer.from(publicInputs)),

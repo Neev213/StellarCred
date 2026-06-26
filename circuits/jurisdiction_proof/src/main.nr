@@ -1,42 +1,39 @@
 // jurisdiction_proof
 //
 // Proves "my country of residence is NOT in the restricted list" without
-// revealing which country it is. The restricted list is a public input set by
-// the verifying protocol; the country code is private and bound to the issued
-// credential via a Pedersen commitment (see age_proof for the commitment
-// rationale and the planned move to signature verification).
+// revealing which country it is. The country code is private and bound to the
+// issued credential via commitment = Poseidon2([country_code, salt], 2). The
+// restricted list is a public input set by the verifying protocol.
 //
-// Country codes are ISO 3166-1 numeric (e.g. US=840, IR=364, KP=408). The
-// restricted list is fixed-length; unused slots are 0, which never collides
-// with a real code.
+// Country codes are ISO 3166-1 numeric (US=840, IR=364, KP=408). Unused slots
+// in the restricted list are 0, which never collides with a real code.
+
+use dep::poseidon::poseidon2::Poseidon2;
 
 global RESTRICTED_LEN: u32 = 8;
 
-fn commit(value: u64, salt: Field) -> Field {
-    std::hash::pedersen_hash([value as Field, salt])
-}
-
 fn main(
-    // --- private inputs ---
+    // private
     country_code: u64,
     salt: Field,
-    // --- public inputs ---
-    credential_commitment: pub Field,
+    // public
+    commitment: pub Field,
     restricted: pub [u64; RESTRICTED_LEN],
 ) {
-    // 1. Bind this proof to the issued credential.
-    assert(commit(country_code, salt) == credential_commitment);
-
-    // 2. Prove non-membership: country differs from every restricted entry.
+    assert(Poseidon2::hash([country_code as Field, salt], 2) == commitment);
     for i in 0..RESTRICTED_LEN {
         assert(country_code != restricted[i]);
     }
 }
 
+fn commit(value: u64, salt: Field) -> Field {
+    Poseidon2::hash([value as Field, salt], 2)
+}
+
 #[test]
 fn passes_for_unrestricted_country() {
     let country: u64 = 566; // Nigeria
-    let salt: Field = 777;
+    let salt: Field = 77;
     let restricted: [u64; RESTRICTED_LEN] = [840, 364, 408, 0, 0, 0, 0, 0];
     main(country, salt, commit(country, salt), restricted);
 }
@@ -44,7 +41,7 @@ fn passes_for_unrestricted_country() {
 #[test(should_fail)]
 fn fails_for_restricted_country() {
     let country: u64 = 840; // US, on the list
-    let salt: Field = 777;
+    let salt: Field = 77;
     let restricted: [u64; RESTRICTED_LEN] = [840, 364, 408, 0, 0, 0, 0, 0];
     main(country, salt, commit(country, salt), restricted);
 }

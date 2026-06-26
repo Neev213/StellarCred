@@ -14,6 +14,11 @@ use soroban_sdk::{
     Symbol, Vec,
 };
 
+// Persistent-entry lifetime management (~5s ledgers).
+const DAY_IN_LEDGERS: u32 = 17280;
+const BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
+const ENTRY_TTL: u32 = 120 * DAY_IN_LEDGERS;
+
 #[contracttype]
 #[derive(Clone)]
 pub struct Issuer {
@@ -62,9 +67,11 @@ impl IssuerRegistry {
             credential_types,
             revoked: false,
         };
+        let key = DataKey::Issuer(issuer_id);
+        env.storage().persistent().set(&key, &issuer);
         env.storage()
             .persistent()
-            .set(&DataKey::Issuer(issuer_id), &issuer);
+            .extend_ttl(&key, BUMP_THRESHOLD, ENTRY_TTL);
     }
 
     /// Mark an issuer as revoked. Admin-only. Existing proofs are not affected
@@ -79,6 +86,9 @@ impl IssuerRegistry {
             .unwrap_or_else(|| panic_with_error!(&env, Error::IssuerNotFound));
         issuer.revoked = true;
         env.storage().persistent().set(&key, &issuer);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, ENTRY_TTL);
     }
 
     /// Look up an issuer's credential-signing public key.

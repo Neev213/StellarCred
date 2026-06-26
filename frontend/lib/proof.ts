@@ -51,37 +51,34 @@ function fieldsToBytes(fields: string[]): Uint8Array {
   return out;
 }
 
-// Maps an imported credential to the circuit's named inputs. Each circuit
-// declares its own private + public parameters; this is where the holder's
-// stored credential fields are bound to them.
+// Maps a credential to the circuit's named inputs. Every credential carries
+// { value, salt, commitment }; each circuit adds public claim parameters the
+// verifying protocol supplies (threshold, restricted list, current date).
+const RESTRICTED = ["840", "364", "408", "0", "0", "0", "0", "0"]; // US, IR, KP
+
 function buildInputs(
   type: CredentialType,
   credential: Record<string, unknown>,
 ): InputMap {
+  const value = String(credential.value);
+  const salt = String(credential.salt);
+  const commitment = String(credential.commitment);
   switch (type) {
     case "age":
       return {
-        date_of_birth: String(credential.date_of_birth),
-        salt: String(credential.salt),
-        credential_commitment: String(credential.commitment),
+        date_of_birth: value,
+        salt,
+        commitment,
         current_date: String(Math.floor(Date.now() / 86_400_000)),
         threshold_years: "18",
       };
-    case "jurisdiction":
-      return {
-        country_code: String(credential.country_code),
-        salt: String(credential.salt),
-        credential_commitment: String(credential.commitment),
-        restricted: (credential.restricted as string[]) ?? [],
-      };
-    case "kyc":
     case "income":
+      return { income: value, salt, commitment, threshold: "200000" };
+    case "jurisdiction":
+      return { country_code: value, salt, commitment, restricted: RESTRICTED };
+    case "kyc":
     default:
-      // Identity-style commitment proof: prove knowledge of a preimage.
-      return {
-        preimage: String(credential.preimage ?? credential.secret),
-        hash: String(credential.commitment ?? credential.hash),
-      };
+      return { secret: value, salt, commitment };
   }
 }
 

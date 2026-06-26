@@ -14,6 +14,11 @@ use soroban_sdk::{
     symbol_short, Address, Env, Symbol,
 };
 
+// Persistent-entry lifetime management (~5s ledgers).
+const DAY_IN_LEDGERS: u32 = 17280;
+const BALANCE_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
+const BALANCE_TTL: u32 = 120 * DAY_IN_LEDGERS;
+
 /// Typed client for the deployed ProofRegistry contract. Declared as an
 /// interface so this contract links only the client, not the registry's
 /// exported wasm symbols.
@@ -62,9 +67,7 @@ impl GatedPool {
         }
 
         let balance = Self::balance_of(&env, &caller) + amount;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(caller), &balance);
+        Self::set_balance(&env, &caller, balance);
     }
 
     /// Withdraw `amount`. Open — no proof required.
@@ -77,9 +80,7 @@ impl GatedPool {
         if amount > balance {
             panic_with_error!(&env, Error::InsufficientBalance);
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(caller), &(balance - amount));
+        Self::set_balance(&env, &caller, balance - amount);
     }
 
     pub fn get_balance(env: Env, account: Address) -> i128 {
@@ -95,6 +96,14 @@ impl GatedPool {
             .persistent()
             .get(&DataKey::Balance(account.clone()))
             .unwrap_or(0)
+    }
+
+    fn set_balance(env: &Env, account: &Address, balance: i128) {
+        let key = DataKey::Balance(account.clone());
+        env.storage().persistent().set(&key, &balance);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BALANCE_BUMP_THRESHOLD, BALANCE_TTL);
     }
 
     fn registry(env: &Env) -> Address {

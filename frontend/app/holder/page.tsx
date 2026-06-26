@@ -189,7 +189,8 @@ function ProofFlow({
     (async () => {
       try {
         const result = await generateProof(cred.type, {
-          preimage: cred.preimage,
+          value: cred.value,
+          salt: cred.salt,
           commitment: cred.commitment,
         });
         if (!cancelled) {
@@ -214,6 +215,7 @@ function ProofFlow({
     try {
       const hash = await submitProof({
         holder,
+        issuerId: cred.issuerId,
         credentialType: cred.type,
         proof: proof.proof,
         publicInputs: proof.publicInputs,
