@@ -1,12 +1,14 @@
 // Central Stellar/Soroban configuration and contract IDs.
 // IDs are read from NEXT_PUBLIC_* env vars populated by scripts/deploy.sh.
+import { Networks } from "@stellar/stellar-sdk";
 
+export const NETWORK_PASSPHRASE = Networks.TESTNET;
 export const NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet";
 export const RPC_URL =
   process.env.NEXT_PUBLIC_RPC_URL ?? "https://soroban-testnet.stellar.org";
-export const NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ??
-  "Test SDF Network ; September 2015";
+// export const NETWORK_PASSPHRASE =
+//   process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ??
+//   "Test SDF Network ; September 2015";
 
 export const CONTRACTS = {
   issuerRegistry: process.env.NEXT_PUBLIC_ISSUER_REGISTRY_ID ?? "",
