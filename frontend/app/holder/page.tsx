@@ -23,7 +23,7 @@ import { ConfigBanner } from "@/components/ConfigBanner";
 import { truncateHash } from "@/lib/format";
 import { EXPLORER_TX } from "@/lib/stellar";
 import { computeWitness, proveWithBackend } from "@/lib/proof";
-import { submitProof } from "@/lib/contracts";
+import { submitProof, parseContractError, type ContractError } from "@/lib/contracts";
 import {
   type Credential,
   loadCredentials,
@@ -323,7 +323,8 @@ function ProofFlow({
   const [stage, setStage] = useState<Stage>("witness");
   const [proof, setProof] = useState<{ proof: Uint8Array; publicInputs: Uint8Array } | null>(null);
   const [txHash, setTxHash] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ContractError | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
   // elapsed time for the proving stage
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -359,7 +360,7 @@ function ProofFlow({
       } catch (e) {
         clearInterval(timerRef.current!);
         if (!cancelled) {
-          setError((e as Error).message);
+          setError(parseContractError((e as Error).message));
           setStage("error");
         }
       }
@@ -386,7 +387,7 @@ function ProofFlow({
       onProved(hash);
       setStage("confirmed");
     } catch (e) {
-      setError((e as Error).message);
+      setError(parseContractError((e as Error).message));
       setStage("error");
     }
   }
@@ -503,7 +504,7 @@ function ProofFlow({
           </button>
         )}
 
-        {stage === "error" && (
+        {stage === "error" && error && (
           <div
             style={{
               marginTop: "1.5rem",
@@ -515,11 +516,42 @@ function ProofFlow({
           >
             <div className="row" style={{ gap: "0.5rem", color: "var(--danger)", fontWeight: 600, fontSize: "0.875rem" }}>
               <IconAlertTriangle size={15} />
-              Could not complete
+              {error.code !== null ? `Contract error #${error.code}` : "Could not complete"}
             </div>
-            <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.35rem", lineHeight: 1.6 }}>
-              {error}
+            <div style={{ fontSize: "0.8125rem", marginTop: "0.45rem", lineHeight: 1.65, color: "var(--text)" }}>
+              {error.friendly}
             </div>
+            {error.raw !== error.friendly && (
+              <div style={{ marginTop: "0.6rem" }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowRaw((v) => !v)}
+                  style={{ fontSize: "0.72rem", padding: "0.2rem 0.5rem", color: "var(--faint)" }}
+                >
+                  {showRaw ? "Hide" : "Show"} raw error
+                </button>
+                {showRaw && (
+                  <pre
+                    className="mono"
+                    style={{
+                      marginTop: "0.5rem",
+                      fontSize: "0.68rem",
+                      color: "var(--faint)",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-all",
+                      lineHeight: 1.5,
+                      maxHeight: 180,
+                      overflowY: "auto",
+                      background: "rgba(0,0,0,0.2)",
+                      padding: "0.6rem",
+                      borderRadius: "calc(var(--radius) - 2px)",
+                    }}
+                  >
+                    {error.raw}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
         )}
 

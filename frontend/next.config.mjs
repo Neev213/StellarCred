@@ -25,19 +25,27 @@ const nextConfig = {
   // Noir + Barretenberg (bb.js) prove in WASM in the browser. They expect Node
   // globals (Buffer/process) and load WASM modules; these settings make the
   // client bundle work without server-side polyfills.
-  webpack: (config, { webpack }) => {
+  webpack: (config, { webpack, isServer }) => {
     config.experiments = { ...config.experiments, asyncWebAssembly: true };
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      buffer: bufferPath,
-      process: processPath,
-    };
-    config.plugins.push(
-      new webpack.ProvidePlugin({
-        Buffer: ["buffer", "Buffer"],
+
+    // Buffer/process polyfills are only needed in the browser bundle.
+    // Applying ProvidePlugin on the server replaces Node's real `process`
+    // with `process/browser` (env: {}), which hides server-only env vars
+    // like ISSUER_PRIVATE_KEY even after they are set in .env.local.
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        buffer: bufferPath,
         process: processPath,
-      }),
-    );
+      };
+      config.plugins.push(
+        new webpack.ProvidePlugin({
+          Buffer: ["buffer", "Buffer"],
+          process: processPath,
+        }),
+      );
+    }
+
     return config;
   },
 

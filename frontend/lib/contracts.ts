@@ -28,6 +28,40 @@ async function getServer() {
   return server;
 }
 
+const PROOF_REGISTRY_ERRORS: Record<number, string> = {
+  1: "Contracts not initialised — check that all contract IDs are set in the environment.",
+  2: "Proof verification failed — the ZK proof is invalid or was generated against the wrong circuit VK.",
+  3: "Unknown credential type.",
+  4: "Not authorised — wallet signature missing or wrong account.",
+  5: "Issuer not trusted — the issuer address isn't registered for this credential type.",
+  6: "Issuer key mismatch — this credential was signed with a key that doesn't match what's registered on-chain. Re-issue the credential and try again.",
+};
+
+export interface ContractError {
+  friendly: string;
+  code: number | null;
+  raw: string;
+}
+
+export function parseContractError(raw: string): ContractError {
+  const match = raw.match(/Error\(Contract,\s*#(\d+)\)/);
+  if (match) {
+    const code = parseInt(match[1]);
+    return {
+      code,
+      friendly: PROOF_REGISTRY_ERRORS[code] ?? `Contract error #${code}.`,
+      raw,
+    };
+  }
+  if (raw.includes("Error(Auth")) {
+    return { code: null, friendly: "Wallet authorisation failed — approve the transaction in Freighter.", raw };
+  }
+  if (raw.includes("Error(WasmVm")) {
+    return { code: null, friendly: "Contract execution failed — the proof or inputs were malformed.", raw };
+  }
+  return { code: null, friendly: raw, raw };
+}
+
 export interface VerificationStatus {
   valid: boolean;
   verifiedAt: number;
