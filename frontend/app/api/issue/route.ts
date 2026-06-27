@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { randomBytes } from "crypto";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+// Resolved by webpack at build time — avoids process.cwd() which is unreliable
+// in Next.js server routes (can return "/" depending on how the server starts).
+import commitCircuit from "../../../public/circuits/commit.json";
 
 // Server-side only — the demo key never ships to the browser.
 // DEMO KEY ONLY. A real issuer would read this from a secrets manager.
@@ -40,10 +41,9 @@ function attributeToValue(type: string, attribute: string): string {
 }
 
 async function poseidonCommit(value: string, salt: string): Promise<string> {
-  const circuitPath = join(process.cwd(), "public", "circuits", "commit.json");
-  const circuit = JSON.parse(readFileSync(circuitPath, "utf-8"));
   const { Noir } = await import("@noir-lang/noir_js");
-  const noir = new Noir(circuit);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const noir = new Noir(commitCircuit as any);
   const { returnValue } = await noir.execute({ value, salt });
   return String(returnValue);
 }

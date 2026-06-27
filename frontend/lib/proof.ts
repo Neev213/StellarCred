@@ -102,13 +102,13 @@ export async function generateProof(
   const { witness } = await noir.execute(buildInputs(type, credential));
 
   // 2. Generate the UltraHonk proof. `keccak` matches the verifier's transcript.
-  //    Multithreading needs cross-origin isolation (COOP/COEP headers, set in
-  //    next.config.mjs); falls back to single-threaded if unavailable.
-  const threads =
-    typeof navigator !== "undefined" && crossOriginIsolated
-      ? navigator.hardwareConcurrency || 4
-      : 1;
-  const backend = new UltraHonkBackend(circuit.bytecode, { threads });
+  //    Force single-threaded: the multithreaded path loads main.worker.js via
+  //    `new URL(...)`, which is already a pre-compiled webpack bundle inside
+  //    @aztec/bb.js. Next.js re-processes it through its own webpack, causing
+  //    a double-bundle crash ("Object.defineProperty called on non-object").
+  //    Single-threaded uses barretenberg.js (WASM inlined as a data URI) with
+  //    no worker at all — slower but reliable.
+  const backend = new UltraHonkBackend(circuit.bytecode, { threads: 1 });
   try {
     const { proof, publicInputs } = await backend.generateProof(witness, {
       keccak: true,
