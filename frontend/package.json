@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "copy-bb": "node scripts/copy-bb.mjs",
+    "predev": "node scripts/copy-bb.mjs",
+    "prebuild": "node scripts/copy-bb.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

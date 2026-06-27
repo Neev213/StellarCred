@@ -9,8 +9,9 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
+import { useWallet } from "@/lib/wallet-context";
 import { Badge } from "@/components/Badge";
-import { issueCredential, saveCredential, TYPE_META } from "@/lib/credential";
+import { saveCredential, TYPE_META, type Credential } from "@/lib/credential";
 import type { CredentialType } from "@/lib/stellar";
 
 const TYPES = Object.entries(TYPE_META) as [
@@ -35,7 +36,7 @@ const COUNTRIES = [
 ];
 
 export default function IssuerPage() {
-  const [issuerId, setIssuerId] = useState("");
+  const { address: issuerId } = useWallet();
   const [holder, setHolder] = useState("");
   const [type, setType] = useState<CredentialType>("kyc");
   const [attribute, setAttribute] = useState(DEFAULT_ATTR.kyc);
@@ -58,15 +59,14 @@ export default function IssuerPage() {
     setError("");
     setCopied(false);
     try {
-      const cred = await issueCredential({
-        type,
-        holder,
-        issuerId,
-        issuerName: "StellarCred Authority",
-        expiry,
-        attribute,
+      const res = await fetch("/api/issue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, holder, issuerId, issuerName: "StellarCred Authority", expiry, attribute }),
       });
-      saveCredential(cred); // appears in the Holder dashboard (same browser)
+      if (!res.ok) throw new Error(await res.text());
+      const cred = (await res.json()) as Credential;
+      saveCredential(cred);
       setIssued(JSON.stringify(cred, null, 2));
     } catch (e) {
       setError((e as Error).message);
@@ -87,7 +87,7 @@ export default function IssuerPage() {
           <span className="eyebrow">Issuer</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Issue a credential</h1>
         </div>
-        <WalletButton onConnected={setIssuerId} />
+        <WalletButton />
       </div>
 
       <div className="grid grid-2" style={{ alignItems: "start", gap: "1.5rem" }}>
