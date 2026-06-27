@@ -50,6 +50,7 @@ export default function Home() {
             className="eyebrow row"
             style={{
               display: "inline-flex",
+              fontSize: "0.6rem",
               gap: "0.45rem",
               padding: "0.35rem 0.75rem",
               background: "rgba(62,207,142,0.07)",
@@ -92,7 +93,7 @@ export default function Home() {
           </div>
 
           {/* right: credential card */}
-          <div style={{ display: "flex", justifyContent: "center" }}>
+          <div style={{ display: "flex", justifyContent: "right" }}>
             <CredentialCard
               issuer="StellarCred Authority"
               type="Identity Credential"

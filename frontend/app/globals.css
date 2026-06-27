@@ -418,7 +418,7 @@ input:focus, select:focus, textarea:focus {
 .stats-strip {
   display: flex;
   align-items: center;
-  gap: 2.5rem;
+  justify-content: space-between;
   padding: 1.1rem 1.5rem;
   background: var(--bg-raised);
   border: 1px solid var(--border);
