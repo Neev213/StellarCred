@@ -59,10 +59,9 @@ async function loadBb(): Promise<BbModule> {
   return import(/* webpackIgnore: true */ "/bb/index.js") as Promise<BbModule>;
 }
 
-// Ask the server to execute the circuit and return the witness bytes (hex).
-// The server-side route has @noir-lang/noir_js + acvm_js available as Node
-// externals (no WASM bundling needed).
-async function fetchWitness(
+// Stage 1 — server computes the witness (Noir circuit execution).
+// Exported so ProofFlow can report progress between stages.
+export async function computeWitness(
   type: CredentialType,
   credential: Record<string, unknown>,
 ): Promise<Uint8Array> {
@@ -83,14 +82,12 @@ async function fetchWitness(
   return bytes;
 }
 
-export async function generateProof(
+// Stage 2 — browser runs UltraHonk over the witness.
+// Exported so ProofFlow can call it after stage 1 completes.
+export async function proveWithBackend(
   type: CredentialType,
-  credential: Record<string, unknown>,
+  witness: Uint8Array,
 ): Promise<GeneratedProof> {
-  // 1. Server generates the witness (runs the Noir circuit with private inputs).
-  const witness = await fetchWitness(type, credential);
-
-  // 2. Load the circuit bytecode (needed by UltraHonkBackend).
   const circuitRes = await fetch(`/circuits/${type}.json`);
   if (!circuitRes.ok) {
     throw new Error(
@@ -99,8 +96,6 @@ export async function generateProof(
   }
   const circuit = (await circuitRes.json()) as { bytecode: string };
 
-  // 3. Generate the UltraHonk proof in the browser. `keccak` matches the
-  //    verifier's transcript. threads:1 — no SharedArrayBuffer / COOP/COEP needed.
   const { UltraHonkBackend } = await loadBb();
   const backend = new UltraHonkBackend(circuit.bytecode, { threads: 1 });
   try {
@@ -111,4 +106,13 @@ export async function generateProof(
   } finally {
     await backend.destroy();
   }
+}
+
+// Convenience wrapper — runs both stages in sequence.
+export async function generateProof(
+  type: CredentialType,
+  credential: Record<string, unknown>,
+): Promise<GeneratedProof> {
+  const witness = await computeWitness(type, credential);
+  return proveWithBackend(type, witness);
 }

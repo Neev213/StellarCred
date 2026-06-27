@@ -4,11 +4,32 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const LINKS = [
-  { href: "/verify", label: "Get credential" },
-  { href: "/holder", label: "Holder" },
-  { href: "/issuer", label: "Issuer" },
+  { href: "/verify",   label: "Get credential" },
+  { href: "/holder",   label: "Holder" },
+  { href: "/issuer",   label: "Issuer" },
   { href: "/verifier", label: "Demo" },
 ];
+
+function ShieldIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden>
+      <path
+        d="M11 2.5L4 5.5v5.25c0 4.97 3.253 9.63 7 10.75 3.747-1.12 7-5.78 7-10.75V5.5L11 2.5z"
+        fill="rgba(62,207,142,0.12)"
+        stroke="#3ecf8e"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 11.2l2.1 2.1 4-4"
+        stroke="#3ecf8e"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 export function SiteNav() {
   const pathname = usePathname();
@@ -16,9 +37,12 @@ export function SiteNav() {
     <header className="nav">
       <div className="nav-inner">
         <Link href="/" className="brand">
-          <span className="dot" />
+          <span className="brand-icon">
+            <ShieldIcon />
+          </span>
           StellarCred
         </Link>
+
         <nav className="nav-links">
           {LINKS.map((l) => (
             <Link
@@ -30,6 +54,16 @@ export function SiteNav() {
             </Link>
           ))}
         </nav>
+
+        <div className="nav-right">
+          <Link
+            href="/docs"
+            className={`btn btn-secondary btn-sm${pathname.startsWith("/docs") ? " active" : ""}`}
+            style={{ letterSpacing: "-0.01em" }}
+          >
+            Docs
+          </Link>
+        </div>
       </div>
     </header>
   );

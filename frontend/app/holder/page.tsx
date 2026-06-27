@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconArrowLeft,
   IconArrowRight,
@@ -10,6 +10,10 @@ import {
   IconAlertTriangle,
   IconTrash,
   IconCertificate,
+  IconLoader2,
+  IconServer,
+  IconCpu,
+  IconCloudUpload,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { useWallet } from "@/lib/wallet-context";
@@ -18,7 +22,7 @@ import { Check } from "@/components/Check";
 import { ConfigBanner } from "@/components/ConfigBanner";
 import { truncateHash } from "@/lib/format";
 import { EXPLORER_TX } from "@/lib/stellar";
-import { generateProof } from "@/lib/proof";
+import { computeWitness, proveWithBackend } from "@/lib/proof";
 import { submitProof } from "@/lib/contracts";
 import {
   type Credential,
@@ -29,21 +33,136 @@ import {
   parseCredential,
 } from "@/lib/credential";
 
-// Must match the TTL passed to submitProof (30 * 86_400 seconds).
-const PROOF_TTL_SECS = 30 * 86_400;
+// Parse "90 days", "30 days" etc from the credential's expiry string.
+function credTtlSecs(cred: Credential): number {
+  const match = cred.expiry?.match(/(\d+)/);
+  return (match ? parseInt(match[1]) : 30) * 86_400;
+}
 
 function proofStatus(cred: Credential): "unproved" | "proved" | "expired" {
   if (!cred.provedAt) return "unproved";
-  return cred.provedAt + PROOF_TTL_SECS > Math.floor(Date.now() / 1000)
+  return cred.provedAt + credTtlSecs(cred) > Math.floor(Date.now() / 1000)
     ? "proved"
     : "expired";
 }
 
 function daysRemaining(cred: Credential): number {
   if (!cred.provedAt) return 0;
-  const secsLeft = cred.provedAt + PROOF_TTL_SECS - Math.floor(Date.now() / 1000);
+  const secsLeft = cred.provedAt + credTtlSecs(cred) - Math.floor(Date.now() / 1000);
   return Math.max(0, Math.ceil(secsLeft / 86_400));
 }
+
+// ── Credential card ──────────────────────────────────────────────────────────
+
+function CredCard({
+  c,
+  address,
+  onProve,
+  onRemove,
+}: {
+  c: Credential;
+  address: string;
+  onProve: () => void;
+  onRemove: () => void;
+}) {
+  const status = proofStatus(c);
+
+  return (
+    <div className="card" style={{ padding: "1rem 1.25rem" }}>
+      <div className="between" style={{ alignItems: "center", gap: "0.75rem" }}>
+        {/* left: credential info */}
+        <div style={{ minWidth: 0 }}>
+          <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{c.title}</span>
+            <span className="mono faint" style={{ fontSize: "0.75rem" }}>{c.claim}</span>
+          </div>
+          <div style={{ fontSize: "0.72rem", color: "var(--faint)", marginTop: "0.15rem" }}>
+            {c.issuer} · <span className="mono">{truncateHash(c.commitment)}</span>
+            {status === "proved" && (
+              <>
+                {" · "}
+                <span style={{ color: "var(--accent)", opacity: 0.75 }}>
+                  expires in {daysRemaining(c)}d
+                </span>
+                {c.provedTxHash && (
+                  <>
+                    {" · "}
+                    <a
+                      href={EXPLORER_TX(c.provedTxHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "inherit", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}
+                    >
+                      {c.provedTxHash.slice(0, 6)}…<IconExternalLink size={10} />
+                    </a>
+                  </>
+                )}
+              </>
+            )}
+            {status === "expired" && (
+              <> · <span style={{ color: "var(--danger)", opacity: 0.8 }}>expired</span></>
+            )}
+          </div>
+        </div>
+
+        {/* right: badges + button + trash */}
+        <div className="row" style={{ gap: "0.4rem", flexShrink: 0 }}>
+          <Badge variant="verified" dot={false}>Held</Badge>
+          {status === "proved" && <Badge variant="verified" dot={false}>On-chain</Badge>}
+          <button
+            className={`btn btn-sm ${status === "proved" ? "btn-secondary" : "btn-primary"}`}
+            disabled={!address}
+            title={!address ? "Connect a wallet first" : undefined}
+            onClick={onProve}
+          >
+            {status === "proved"  ? "Re-prove" :
+             status === "expired" ? "Re-prove" :
+                                    "Generate proof"}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            title="Remove"
+            onClick={onRemove}
+            style={{ padding: "0.3rem 0.4rem", color: "var(--faint)" }}
+          >
+            <IconTrash size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Section header ────────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.6rem",
+        marginBottom: "0.65rem",
+        marginTop: "0.25rem",
+      }}
+    >
+      <span
+        style={{
+          fontSize: "0.72rem",
+          fontWeight: 600,
+          letterSpacing: "0.07em",
+          textTransform: "uppercase",
+          color: "var(--faint)",
+        }}
+      >
+        {children}
+      </span>
+      <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
+    </div>
+  );
+}
+
+// ── Holder page ───────────────────────────────────────────────────────────────
 
 export default function HolderPage() {
   const { address } = useWallet();
@@ -52,6 +171,9 @@ export default function HolderPage() {
   const [importing, setImporting] = useState(false);
 
   useEffect(() => setCreds(loadCredentials()), []);
+
+  const unproved = creds.filter((c) => proofStatus(c) !== "proved");
+  const proved   = creds.filter((c) => proofStatus(c) === "proved");
 
   return (
     <>
@@ -70,132 +192,81 @@ export default function HolderPage() {
           cred={proving}
           holder={address}
           onBack={() => setProving(null)}
-          onProved={(txHash) =>
-            setCreds(markProved(proving.commitment, txHash))
-          }
+          onProved={(txHash) => setCreds(markProved(proving.commitment, txHash))}
         />
       ) : (
-        <div className="stack reveal" style={{ gap: "0.75rem" }}>
+        <div className="stack reveal" style={{ gap: "1.5rem" }}>
+
+          {/* ── Empty state ── */}
           {creds.length === 0 && !importing && (
-            <div className="card" style={{ textAlign: "center", padding: "3rem 1.5rem" }}>
-              <IconCertificate size={28} stroke={1.5} className="muted" />
+            <div
+              className="card"
+              style={{ textAlign: "center", padding: "3.5rem 1.5rem", borderStyle: "dashed" }}
+            >
+              <IconCertificate size={30} stroke={1.3} color="var(--faint)" />
               <h3 style={{ margin: "1rem 0 0.4rem" }}>No credentials yet</h3>
-              <p className="muted" style={{ fontSize: "0.9rem", maxWidth: 360, margin: "0 auto" }}>
-                Issue one on the Issuer page, or import a credential JSON you were
-                given.
+              <p className="muted" style={{ fontSize: "0.875rem", maxWidth: 340, margin: "0 auto 1.5rem" }}>
+                Get a credential from a trusted issuer, then generate a
+                zero-knowledge proof to verify it on-chain.
               </p>
+              <a href="/verify" className="btn btn-primary btn-sm" style={{ display: "inline-flex" }}>
+                Get a credential
+                <IconArrowRight size={14} />
+              </a>
             </div>
           )}
 
-          {creds.map((c) => {
-            const status = proofStatus(c);
-            return (
-              <div className="card" key={c.commitment} style={{ padding: "1.25rem 1.5rem" }}>
-                <div className="between" style={{ alignItems: "flex-start" }}>
-                  <div>
-                    <div className="row" style={{ gap: "0.6rem" }}>
-                      <span style={{ fontWeight: 500 }}>{c.title}</span>
-                      <span className="mono faint">{c.claim}</span>
-                    </div>
-                    <div className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.2rem" }}>
-                      Issued by {c.issuer} · {truncateHash(c.commitment)}
-                    </div>
-                  </div>
-                  <div className="row">
-                    <Badge variant="verified">Held</Badge>
-                    {status === "proved" && <Badge variant="verified">Proved</Badge>}
-                    {status === "expired" && <Badge variant="pending">Expired</Badge>}
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      title="Remove from this browser"
-                      onClick={() => setCreds(removeCredential(c.commitment))}
-                    >
-                      <IconTrash size={14} />
-                    </button>
-                  </div>
-                </div>
+          {/* ── Credentials to prove ── */}
+          {unproved.length > 0 && (
+            <div className="stack" style={{ gap: "0.6rem" }}>
+              <SectionLabel>Ready to prove</SectionLabel>
+              {unproved.map((c) => (
+                <CredCard
+                  key={c.commitment}
+                  c={c}
+                  address={address}
+                  onProve={() => setProving(c)}
+                  onRemove={() => setCreds(removeCredential(c.commitment))}
+                />
+              ))}
+            </div>
+          )}
 
-                {status === "proved" && (
-                  <div
-                    className="row"
-                    style={{
-                      marginTop: "0.9rem",
-                      padding: "0.6rem 0.9rem",
-                      borderRadius: "var(--radius)",
-                      background: "var(--accent-soft)",
-                      gap: "0.75rem",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <div className="row" style={{ gap: "0.5rem", fontSize: "0.8125rem" }}>
-                      <IconCheck size={14} color="var(--accent)" stroke={2.5} />
-                      <span style={{ color: "var(--accent)", fontWeight: 500 }}>
-                        On-chain · expires in {daysRemaining(c)} day{daysRemaining(c) === 1 ? "" : "s"}
-                      </span>
-                      {c.provedTxHash && (
-                        <a
-                          href={EXPLORER_TX(c.provedTxHash)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="row accent"
-                          style={{ gap: "0.2rem", fontSize: "0.75rem", opacity: 0.7 }}
-                        >
-                          {c.provedTxHash.slice(0, 6)}…
-                          <IconExternalLink size={11} />
-                        </a>
-                      )}
-                    </div>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      disabled={!address}
-                      title={!address ? "Connect a wallet first" : "Submit a fresh proof"}
-                      onClick={() => setProving(c)}
-                    >
-                      Re-prove
-                      <IconArrowRight size={13} />
-                    </button>
-                  </div>
-                )}
-
-                {status !== "proved" && (
-                  <div style={{ marginTop: "0.9rem" }}>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      disabled={!address}
-                      title={!address ? "Connect a wallet first" : undefined}
-                      onClick={() => setProving(c)}
-                    >
-                      {status === "expired" ? "Re-prove (expired)" : "Generate proof"}
-                      <IconArrowRight size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {/* ── Already proved ── */}
+          {proved.length > 0 && (
+            <div className="stack" style={{ gap: "0.6rem" }}>
+              <SectionLabel>On-chain · active proofs</SectionLabel>
+              {proved.map((c) => (
+                <CredCard
+                  key={c.commitment}
+                  c={c}
+                  address={address}
+                  onProve={() => setProving(c)}
+                  onRemove={() => setCreds(removeCredential(c.commitment))}
+                />
+              ))}
+            </div>
+          )}
 
           {!address && creds.length > 0 && (
-            <p className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.25rem" }}>
+            <p className="faint" style={{ fontSize: "0.8125rem" }}>
               Connect a wallet to generate and submit proofs.
             </p>
           )}
 
           {importing ? (
             <ImportPanel
-              onImport={(c) => {
-                setCreds(saveCredential(c));
-                setImporting(false);
-              }}
+              onImport={(c) => { setCreds(saveCredential(c)); setImporting(false); }}
               onCancel={() => setImporting(false)}
             />
           ) : (
             <button
-              className="btn btn-ghost"
-              style={{ alignSelf: "flex-start", marginTop: "0.5rem" }}
+              className="btn btn-ghost btn-sm"
+              style={{ alignSelf: "flex-start" }}
               onClick={() => setImporting(true)}
             >
-              <IconPlus size={15} />
-              Import credential
+              <IconPlus size={14} />
+              Import credential JSON
             </button>
           )}
         </div>
@@ -204,50 +275,39 @@ export default function HolderPage() {
   );
 }
 
-function ImportPanel({
-  onImport,
-  onCancel,
-}: {
-  onImport: (c: Credential) => void;
-  onCancel: () => void;
-}) {
+// ── Import panel ──────────────────────────────────────────────────────────────
+
+function ImportPanel({ onImport, onCancel }: { onImport: (c: Credential) => void; onCancel: () => void }) {
   const [json, setJson] = useState("");
   const [error, setError] = useState("");
 
   function onAdd() {
-    try {
-      onImport(parseCredential(json));
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    try { onImport(parseCredential(json)); }
+    catch (e) { setError((e as Error).message); }
   }
 
   return (
     <div className="card reveal">
       <span className="eyebrow">Import credential</span>
       <textarea
-        rows={6}
-        placeholder='{"type":"kyc","preimage":"0x…","commitment":"0x…", …}'
+        rows={5}
+        placeholder='{"type":"kyc","commitment":"0x…", …}'
         value={json}
         onChange={(e) => setJson(e.target.value)}
         style={{ marginTop: "0.75rem" }}
       />
-      {error && (
-        <p style={{ color: "var(--danger)", fontSize: "0.8125rem", marginTop: "0.5rem" }}>{error}</p>
-      )}
+      {error && <p style={{ color: "var(--danger)", fontSize: "0.8125rem", marginTop: "0.5rem" }}>{error}</p>}
       <div className="row" style={{ marginTop: "1rem", gap: "0.6rem" }}>
-        <button className="btn btn-primary btn-sm" onClick={onAdd} disabled={!json.trim()}>
-          Add credential
-        </button>
-        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
-          Cancel
-        </button>
+        <button className="btn btn-primary btn-sm" onClick={onAdd} disabled={!json.trim()}>Add credential</button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );
 }
 
-type Stage = "generating" | "generated" | "submitting" | "confirmed" | "error";
+// ── ProofFlow ─────────────────────────────────────────────────────────────────
+
+type Stage = "witness" | "proving" | "generated" | "submitting" | "confirmed" | "error";
 
 function ProofFlow({
   cred,
@@ -260,24 +320,44 @@ function ProofFlow({
   onBack: () => void;
   onProved: (txHash: string) => void;
 }) {
-  const [stage, setStage] = useState<Stage>("generating");
+  const [stage, setStage] = useState<Stage>("witness");
   const [proof, setProof] = useState<{ proof: Uint8Array; publicInputs: Uint8Array } | null>(null);
   const [txHash, setTxHash] = useState("");
   const [error, setError] = useState("");
+  // elapsed time for the proving stage
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const result = await generateProof(
+        // Stage 1: witness (server)
+        const witness = await computeWitness(
           cred.type,
           cred as unknown as Record<string, unknown>,
         );
-        if (!cancelled) {
-          setProof(result);
-          setStage("generated");
-        }
+        if (cancelled) return;
+
+        // Stage 2: prove (browser WASM)
+        setStage("proving");
+        const start = Date.now();
+        timerRef.current = setInterval(
+          () => setElapsed(Math.floor((Date.now() - start) / 1000)),
+          1000,
+        );
+
+        const result = await proveWithBackend(
+          cred.type,
+          witness,
+        );
+        clearInterval(timerRef.current!);
+        if (cancelled) return;
+
+        setProof(result);
+        setStage("generated");
       } catch (e) {
+        clearInterval(timerRef.current!);
         if (!cancelled) {
           setError((e as Error).message);
           setStage("error");
@@ -286,6 +366,7 @@ function ProofFlow({
     })();
     return () => {
       cancelled = true;
+      clearInterval(timerRef.current!);
     };
   }, [cred]);
 
@@ -299,7 +380,7 @@ function ProofFlow({
         credentialType: cred.type,
         proof: proof.proof,
         publicInputs: proof.publicInputs,
-        ttlSecs: 30 * 86_400,
+        ttlSecs: credTtlSecs(cred),
       });
       setTxHash(hash);
       onProved(hash);
@@ -310,68 +391,113 @@ function ProofFlow({
     }
   }
 
-  const proofReady = stage === "generated" || stage === "submitting" || stage === "confirmed";
+  const proofDone = stage === "generated" || stage === "submitting" || stage === "confirmed";
+  const submitDone = stage === "confirmed";
 
   return (
-    <div className="reveal" style={{ maxWidth: 540, margin: "0 auto" }}>
+    <div className="reveal" style={{ maxWidth: 520, margin: "0 auto" }}>
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: "1.5rem" }}>
-        <IconArrowLeft size={15} />
+        <IconArrowLeft size={14} />
         All credentials
       </button>
 
-      <div className="card">
-        <span className="eyebrow">Proving</span>
-        <h2 style={{ margin: "0.4rem 0 0.3rem" }}>{cred.title}</h2>
-        <div className="mono faint">{cred.claim}</div>
+      <div className="card" style={{ padding: "1.75rem" }}>
+        {/* credential header */}
+        <div style={{ marginBottom: "1.5rem" }}>
+          <span className="eyebrow" style={{ marginBottom: "0.5rem", display: "block" }}>
+            Proving
+          </span>
+          <h2 style={{ marginBottom: "0.25rem" }}>{cred.title}</h2>
+          <span className="mono faint" style={{ fontSize: "0.8rem" }}>{cred.claim}</span>
+        </div>
 
-        <hr className="divider" />
-
-        <div className="stack" style={{ gap: "1.25rem" }}>
-          <Step
-            active={stage === "generating"}
-            done={proofReady}
-            title="Generate proof"
+        {/* step list */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+          <ProofStep
+            icon={<IconServer size={14} stroke={1.8} />}
+            title="Compute witness"
+            subtitle="Poseidon2 · secp256k1 · server-side Noir execution"
+            state={
+              stage === "witness"  ? "active" :
+              stage === "error"    ? "idle"   : "done"
+            }
             detail={
-              stage === "generating"
-                ? "Generating witness on server, then proving in your browser — your secret never leaves this device."
-                : proof
-                  ? `Proof ${truncateHash("0x" + toHex(proof.proof))} · ${proof.proof.length} bytes`
-                  : "—"
+              stage === "witness" ? <AnimatedDots text="Running circuit on server" /> : null
             }
           />
-          <Step
-            active={stage === "submitting"}
-            done={stage === "confirmed"}
-            title="Submit to Stellar"
+
+          <ProofStep
+            icon={<IconCpu size={14} stroke={1.8} />}
+            title="UltraHonk proof"
+            subtitle="BN254 · keccak transcript · browser WASM"
+            state={
+              stage === "proving"  ? "active" :
+              proofDone            ? "done"   : "idle"
+            }
             detail={
-              stage === "confirmed" ? (
+              stage === "proving" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.65rem" }}>
+                  <ProvingBar />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                      Generating proof in browser…
+                    </span>
+                    <span className="mono" style={{ fontSize: "0.72rem", color: "var(--faint)" }}>
+                      {elapsed}s
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "0.72rem", color: "var(--faint)" }}>
+                    First run loads the WASM prover (~5–15 s)
+                  </span>
+                </div>
+              ) : proofDone && proof ? (
+                <div style={{ marginTop: "0.4rem" }}>
+                  <span className="mono" style={{ fontSize: "0.75rem", color: "var(--accent)" }}>
+                    π {truncateHash("0x" + toHex(proof.proof))}
+                  </span>
+                  <span className="mono faint" style={{ fontSize: "0.72rem", marginLeft: "0.5rem" }}>
+                    {proof.proof.length.toLocaleString()} bytes
+                  </span>
+                </div>
+              ) : null
+            }
+          />
+
+          <ProofStep
+            icon={<IconCloudUpload size={14} stroke={1.8} />}
+            title="Submit to Stellar"
+            subtitle="ProofRegistry.submit_proof · Freighter signature"
+            state={
+              stage === "submitting" ? "active" :
+              submitDone             ? "done"   : "idle"
+            }
+            last
+            detail={
+              stage === "submitting" ? (
+                <AnimatedDots text="Writing to ProofRegistry" style={{ marginTop: "0.35rem" }} />
+              ) : submitDone ? (
                 <a
-                  className="row accent"
                   href={EXPLORER_TX(txHash)}
                   target="_blank"
                   rel="noreferrer"
-                  style={{ gap: "0.3rem", fontSize: "0.8125rem" }}
+                  className="row accent"
+                  style={{ gap: "0.3rem", fontSize: "0.775rem", marginTop: "0.3rem" }}
                 >
-                  {txHash.slice(0, 6)}…{txHash.slice(-4)}
-                  <IconExternalLink size={13} />
+                  {txHash.slice(0, 8)}…{txHash.slice(-6)}
+                  <IconExternalLink size={12} />
                 </a>
-              ) : stage === "submitting" ? (
-                "Writing verification to ProofRegistry…"
-              ) : (
-                "Cache the verification on-chain"
-              )
+              ) : null
             }
-          />
-          <Step
-            active={false}
-            done={stage === "confirmed"}
-            title="Verified on-chain"
-            detail="Any protocol can now check your proof for 30 days"
           />
         </div>
 
+        {/* CTA */}
         {stage === "generated" && (
-          <button className="btn btn-primary" style={{ marginTop: "1.5rem", width: "100%" }} onClick={onSubmit}>
+          <button
+            className="btn btn-primary"
+            style={{ marginTop: "1.5rem", width: "100%" }}
+            onClick={onSubmit}
+          >
             Submit to Stellar
             <IconArrowRight size={15} />
           </button>
@@ -381,17 +507,19 @@ function ProofFlow({
           <div
             style={{
               marginTop: "1.5rem",
-              padding: "1rem 1.25rem",
+              padding: "0.9rem 1.1rem",
               borderRadius: "var(--radius)",
-              border: "1px solid rgba(240,96,77,0.35)",
-              background: "rgba(240,96,77,0.08)",
+              border: "1px solid rgba(240,96,77,0.3)",
+              background: "rgba(240,96,77,0.06)",
             }}
           >
-            <div className="row" style={{ gap: "0.5rem", color: "var(--danger)", fontWeight: 500 }}>
-              <IconAlertTriangle size={16} />
+            <div className="row" style={{ gap: "0.5rem", color: "var(--danger)", fontWeight: 600, fontSize: "0.875rem" }}>
+              <IconAlertTriangle size={15} />
               Could not complete
             </div>
-            <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.4rem" }}>{error}</div>
+            <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.35rem", lineHeight: 1.6 }}>
+              {error}
+            </div>
           </div>
         )}
 
@@ -400,9 +528,10 @@ function ProofFlow({
             className="reveal"
             style={{
               marginTop: "1.5rem",
-              padding: "1.5rem",
+              padding: "1.25rem",
               borderRadius: "var(--radius)",
-              background: "var(--accent-soft)",
+              background: "rgba(62,207,142,0.07)",
+              border: "1px solid rgba(62,207,142,0.2)",
               display: "flex",
               alignItems: "center",
               gap: "1rem",
@@ -410,9 +539,9 @@ function ProofFlow({
           >
             <Check size={44} run />
             <div>
-              <div style={{ fontWeight: 500 }}>Proof verified</div>
-              <div className="muted" style={{ fontSize: "0.85rem" }}>
-                Your claim is now provable on Stellar — without revealing the data behind it.
+              <div style={{ fontWeight: 600, fontSize: "0.9375rem" }}>Proof verified on-chain</div>
+              <div className="muted" style={{ fontSize: "0.8375rem", marginTop: "0.25rem", lineHeight: 1.5 }}>
+                Your claim is live on Stellar for {Math.round(credTtlSecs(cred) / 86_400)} days — without revealing the data behind it.
               </div>
             </div>
           </div>
@@ -422,58 +551,154 @@ function ProofFlow({
   );
 }
 
-function toHex(u8: Uint8Array): string {
-  return Array.from(u8.slice(0, 7))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+// ── ProofStep ─────────────────────────────────────────────────────────────────
 
-function Step({
-  active,
-  done,
+function ProofStep({
+  icon,
   title,
+  subtitle,
+  state,
   detail,
+  last = false,
 }: {
-  active: boolean;
-  done: boolean;
+  icon: React.ReactNode;
   title: string;
-  detail: React.ReactNode;
+  subtitle: string;
+  state: "idle" | "active" | "done";
+  detail?: React.ReactNode;
+  last?: boolean;
 }) {
   return (
-    <div className="row" style={{ alignItems: "flex-start", gap: "0.85rem" }}>
-      <span
-        style={{
-          marginTop: 2,
-          width: 22,
-          height: 22,
-          borderRadius: "50%",
-          flexShrink: 0,
-          display: "grid",
-          placeItems: "center",
-          border: `1px solid ${done ? "var(--accent)" : "var(--border-strong)"}`,
-          background: done ? "var(--accent)" : "transparent",
-          color: "var(--bg)",
-          transition: "all 0.3s var(--ease)",
-        }}
-      >
-        {done && <IconCheck size={13} stroke={3} />}
-        {active && !done && (
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
-        )}
-      </span>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 500, color: active || done ? "var(--text)" : "var(--muted)" }}>
-          {title}
+    <div style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start" }}>
+      {/* left: connector */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 28, flexShrink: 0 }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            flexShrink: 0,
+            border: `1px solid ${
+              state === "done"   ? "var(--accent)" :
+              state === "active" ? "rgba(62,207,142,0.5)" :
+                                   "var(--border-strong)"
+            }`,
+            background: state === "done" ? "var(--accent)" : "transparent",
+            color: state === "done" ? "var(--bg)" : state === "active" ? "var(--accent)" : "var(--faint)",
+            transition: "all 0.35s var(--ease)",
+          }}
+        >
+          {state === "done" ? (
+            <IconCheck size={13} stroke={3} />
+          ) : state === "active" ? (
+            <IconLoader2 size={13} className="spin" />
+          ) : (
+            icon
+          )}
         </div>
-        <div className="muted" style={{ fontSize: "0.8125rem", marginTop: "0.15rem" }}>
-          {detail}
-        </div>
-        {active && (
-          <div className="bar" style={{ marginTop: "0.6rem", maxWidth: 220 }}>
-            <i />
-          </div>
+        {!last && (
+          <div
+            style={{
+              width: 1,
+              flex: 1,
+              minHeight: 20,
+              marginTop: 4,
+              background: state === "done" ? "var(--accent)" : "var(--border)",
+              transition: "background 0.4s var(--ease)",
+              opacity: state === "done" ? 0.4 : 1,
+            }}
+          />
         )}
+      </div>
+
+      {/* right: text */}
+      <div style={{ paddingBottom: last ? 0 : "1.25rem", flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", paddingTop: "0.3rem" }}>
+          <span
+            style={{
+              fontWeight: 600,
+              fontSize: "0.875rem",
+              color: state === "idle" ? "var(--muted)" : "var(--text)",
+              transition: "color 0.25s var(--ease)",
+            }}
+          >
+            {title}
+          </span>
+          {state === "active" && (
+            <span
+              style={{
+                fontSize: "0.68rem",
+                color: "var(--accent)",
+                background: "rgba(62,207,142,0.1)",
+                border: "1px solid rgba(62,207,142,0.2)",
+                borderRadius: "999px",
+                padding: "0.1rem 0.45rem",
+                fontWeight: 500,
+              }}
+            >
+              running
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: "0.75rem", color: "var(--faint)", marginTop: "0.1rem" }}>
+          {subtitle}
+        </div>
+        {detail}
       </div>
     </div>
   );
+}
+
+// ── Small utilities ───────────────────────────────────────────────────────────
+
+function AnimatedDots({ text, style }: { text: string; style?: React.CSSProperties }) {
+  const [dots, setDots] = useState(".");
+  useEffect(() => {
+    const id = setInterval(() => setDots((d) => d.length >= 3 ? "." : d + "."), 500);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span style={{ fontSize: "0.8rem", color: "var(--muted)", ...style }}>
+      {text}
+      <span style={{ color: "var(--accent)" }}>{dots}</span>
+    </span>
+  );
+}
+
+function ProvingBar() {
+  return (
+    <div
+      style={{
+        height: "3px",
+        borderRadius: "999px",
+        background: "var(--bg-soft)",
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%)",
+          width: "50%",
+          animation: "proving-shimmer 1.6s ease-in-out infinite",
+        }}
+      />
+      <style>{`
+        @keyframes proving-shimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(300%); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function toHex(u8: Uint8Array): string {
+  return Array.from(u8.slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
