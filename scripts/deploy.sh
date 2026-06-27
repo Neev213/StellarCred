@@ -43,7 +43,13 @@ echo "Deploying gated_pool (-> registry)..."
 GATED_POOL_ID="$(deploy gated_pool --registry "$PROOF_REGISTRY_ID")"
 
 echo "Registering deployer as a trusted issuer for all credential types..."
-# secp256k1 public key (x || y, 64 bytes) of the demo issuer that signs credentials.
+# secp256k1 public key (x || y, 64 bytes) derived from ISSUER_PRIVATE_KEY.
+# Set ISSUER_PRIVATE_KEY in the environment before running this script.
+# The same key must be in frontend/.env.local so /api/issue signs with it.
+if [ -z "${ISSUER_PRIVATE_KEY:-}" ]; then
+  echo "Error: ISSUER_PRIVATE_KEY is not set. Export it before running deploy.sh." >&2
+  exit 1
+fi
 ISSUER_PUBKEY="$(node circuits/scripts/sign.js --pubkey-hex)"
 stellar contract invoke \
   --id "$ISSUER_REGISTRY_ID" \
@@ -71,8 +77,12 @@ cat <<EOF
 
 Deployed. Copy into frontend/.env.local:
 
+NEXT_PUBLIC_ISSUER_ADDRESS=$ADMIN
 NEXT_PUBLIC_ISSUER_REGISTRY_ID=$ISSUER_REGISTRY_ID
 NEXT_PUBLIC_CREDENTIAL_VERIFIER_ID=$CREDENTIAL_VERIFIER_ID
 NEXT_PUBLIC_PROOF_REGISTRY_ID=$PROOF_REGISTRY_ID
 NEXT_PUBLIC_GATED_POOL_ID=$GATED_POOL_ID
+
+# Already set (keep it):
+# ISSUER_PRIVATE_KEY=<your 64-char hex secp256k1 key>
 EOF

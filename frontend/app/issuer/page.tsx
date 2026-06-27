@@ -36,7 +36,8 @@ const COUNTRIES = [
 ];
 
 export default function IssuerPage() {
-  const { address: issuerId } = useWallet();
+  const { address } = useWallet();
+  const issuerId = process.env.NEXT_PUBLIC_ISSUER_ADDRESS ?? address;
   const [holder, setHolder] = useState("");
   const [type, setType] = useState<CredentialType>("kyc");
   const [attribute, setAttribute] = useState(DEFAULT_ATTR.kyc);

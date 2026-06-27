@@ -14,7 +14,10 @@ const fe = (m) => path.join(__dirname, "../../frontend/node_modules", m);
 const { secp256k1 } = require(fe("@noble/curves/secp256k1.js"));
 const { sha256 } = require(fe("@noble/hashes/sha2.js"));
 
-const DEMO_SK = sha256(new TextEncoder().encode("stellarcred-demo-issuer"));
+// Use ISSUER_PRIVATE_KEY from env when set; fall back to the dev demo key.
+const DEMO_SK = process.env.ISSUER_PRIVATE_KEY
+  ? Buffer.from(process.env.ISSUER_PRIVATE_KEY, "hex")
+  : sha256(new TextEncoder().encode("stellarcred-demo-issuer"));
 
 const be32 = (v) => {
   const b = new Uint8Array(32);

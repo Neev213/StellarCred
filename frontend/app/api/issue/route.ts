@@ -6,9 +6,13 @@ import { sha256 } from "@noble/hashes/sha2.js";
 // in Next.js server routes (can return "/" depending on how the server starts).
 import commitCircuit from "../../../public/circuits/commit.json";
 
-// Server-side only — the demo key never ships to the browser.
-// DEMO KEY ONLY. A real issuer would read this from a secrets manager.
-const DEMO_SK = sha256(new TextEncoder().encode("stellarcred-demo-issuer"));
+// Server-side only — never shipped to the browser.
+// Set ISSUER_PRIVATE_KEY in .env.local to the 64-char hex secp256k1 private
+// key whose public key was registered in IssuerRegistry. The registered pubkey
+// and the signing key must match or ProofRegistry will reject every proof.
+const DEMO_SK = process.env.ISSUER_PRIVATE_KEY
+  ? Buffer.from(process.env.ISSUER_PRIVATE_KEY, "hex")
+  : sha256(new TextEncoder().encode("stellarcred-demo-issuer"));
 
 function be32(v: bigint): Uint8Array {
   const b = new Uint8Array(32);

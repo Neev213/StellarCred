@@ -33,7 +33,7 @@ const COUNTRIES = [
   { code: "364", name: "Iran (restricted)" },
 ];
 
-const DEMO_ISSUER_ID = process.env.NEXT_PUBLIC_DEMO_ISSUER_ID ?? "";
+const DEMO_ISSUER_ID = process.env.NEXT_PUBLIC_ISSUER_ADDRESS ?? "";
 
 export default function VerifyPage() {
   const router = useRouter();
