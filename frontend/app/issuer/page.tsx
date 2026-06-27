@@ -11,7 +11,7 @@ import {
 import { WalletButton } from "@/components/WalletButton";
 import { useWallet } from "@/lib/wallet-context";
 import { Badge } from "@/components/Badge";
-import { issueCredential, saveCredential, TYPE_META } from "@/lib/credential";
+import { saveCredential, TYPE_META, type Credential } from "@/lib/credential";
 import type { CredentialType } from "@/lib/stellar";
 
 const TYPES = Object.entries(TYPE_META) as [
@@ -59,15 +59,14 @@ export default function IssuerPage() {
     setError("");
     setCopied(false);
     try {
-      const cred = await issueCredential({
-        type,
-        holder,
-        issuerId,
-        issuerName: "StellarCred Authority",
-        expiry,
-        attribute,
+      const res = await fetch("/api/issue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, holder, issuerId, issuerName: "StellarCred Authority", expiry, attribute }),
       });
-      saveCredential(cred); // appears in the Holder dashboard (same browser)
+      if (!res.ok) throw new Error(await res.text());
+      const cred = (await res.json()) as Credential;
+      saveCredential(cred);
       setIssued(JSON.stringify(cred, null, 2));
     } catch (e) {
       setError((e as Error).message);
