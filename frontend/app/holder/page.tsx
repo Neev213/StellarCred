@@ -25,8 +25,25 @@ import {
   loadCredentials,
   saveCredential,
   removeCredential,
+  markProved,
   parseCredential,
 } from "@/lib/credential";
+
+// Must match the TTL passed to submitProof (30 * 86_400 seconds).
+const PROOF_TTL_SECS = 30 * 86_400;
+
+function proofStatus(cred: Credential): "unproved" | "proved" | "expired" {
+  if (!cred.provedAt) return "unproved";
+  return cred.provedAt + PROOF_TTL_SECS > Math.floor(Date.now() / 1000)
+    ? "proved"
+    : "expired";
+}
+
+function daysRemaining(cred: Credential): number {
+  if (!cred.provedAt) return 0;
+  const secsLeft = cred.provedAt + PROOF_TTL_SECS - Math.floor(Date.now() / 1000);
+  return Math.max(0, Math.ceil(secsLeft / 86_400));
+}
 
 export default function HolderPage() {
   const { address } = useWallet();
@@ -49,7 +66,14 @@ export default function HolderPage() {
       <ConfigBanner />
 
       {proving ? (
-        <ProofFlow cred={proving} holder={address} onBack={() => setProving(null)} />
+        <ProofFlow
+          cred={proving}
+          holder={address}
+          onBack={() => setProving(null)}
+          onProved={(txHash) =>
+            setCreds(markProved(proving.commitment, txHash))
+          }
+        />
       ) : (
         <div className="stack reveal" style={{ gap: "0.75rem" }}>
           {creds.length === 0 && !importing && (
@@ -63,38 +87,92 @@ export default function HolderPage() {
             </div>
           )}
 
-          {creds.map((c) => (
-            <div className="card between" key={c.commitment} style={{ padding: "1.25rem 1.5rem" }}>
-              <div>
-                <div className="row" style={{ gap: "0.6rem" }}>
-                  <span style={{ fontWeight: 500 }}>{c.title}</span>
-                  <span className="mono faint">{c.claim}</span>
+          {creds.map((c) => {
+            const status = proofStatus(c);
+            return (
+              <div className="card" key={c.commitment} style={{ padding: "1.25rem 1.5rem" }}>
+                <div className="between" style={{ alignItems: "flex-start" }}>
+                  <div>
+                    <div className="row" style={{ gap: "0.6rem" }}>
+                      <span style={{ fontWeight: 500 }}>{c.title}</span>
+                      <span className="mono faint">{c.claim}</span>
+                    </div>
+                    <div className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.2rem" }}>
+                      Issued by {c.issuer} · {truncateHash(c.commitment)}
+                    </div>
+                  </div>
+                  <div className="row">
+                    <Badge variant="verified">Held</Badge>
+                    {status === "proved" && <Badge variant="verified">Proved</Badge>}
+                    {status === "expired" && <Badge variant="pending">Expired</Badge>}
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      title="Remove from this browser"
+                      onClick={() => setCreds(removeCredential(c.commitment))}
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </div>
                 </div>
-                <div className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.2rem" }}>
-                  Issued by {c.issuer} · {truncateHash(c.commitment)}
-                </div>
+
+                {status === "proved" && (
+                  <div
+                    className="row"
+                    style={{
+                      marginTop: "0.9rem",
+                      padding: "0.6rem 0.9rem",
+                      borderRadius: "var(--radius)",
+                      background: "var(--accent-soft)",
+                      gap: "0.75rem",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <div className="row" style={{ gap: "0.5rem", fontSize: "0.8125rem" }}>
+                      <IconCheck size={14} color="var(--accent)" stroke={2.5} />
+                      <span style={{ color: "var(--accent)", fontWeight: 500 }}>
+                        On-chain · expires in {daysRemaining(c)} day{daysRemaining(c) === 1 ? "" : "s"}
+                      </span>
+                      {c.provedTxHash && (
+                        <a
+                          href={EXPLORER_TX(c.provedTxHash)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="row accent"
+                          style={{ gap: "0.2rem", fontSize: "0.75rem", opacity: 0.7 }}
+                        >
+                          {c.provedTxHash.slice(0, 6)}…
+                          <IconExternalLink size={11} />
+                        </a>
+                      )}
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={!address}
+                      title={!address ? "Connect a wallet first" : "Submit a fresh proof"}
+                      onClick={() => setProving(c)}
+                    >
+                      Re-prove
+                      <IconArrowRight size={13} />
+                    </button>
+                  </div>
+                )}
+
+                {status !== "proved" && (
+                  <div style={{ marginTop: "0.9rem" }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={!address}
+                      title={!address ? "Connect a wallet first" : undefined}
+                      onClick={() => setProving(c)}
+                    >
+                      {status === "expired" ? "Re-prove (expired)" : "Generate proof"}
+                      <IconArrowRight size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="row">
-                <Badge variant="verified">Held</Badge>
-                <button
-                  className="btn btn-primary btn-sm"
-                  disabled={!address}
-                  title={!address ? "Connect a wallet first" : undefined}
-                  onClick={() => setProving(c)}
-                >
-                  Generate proof
-                  <IconArrowRight size={14} />
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  title="Remove from this browser"
-                  onClick={() => setCreds(removeCredential(c.commitment))}
-                >
-                  <IconTrash size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {!address && creds.length > 0 && (
             <p className="faint" style={{ fontSize: "0.8125rem", marginTop: "0.25rem" }}>
@@ -175,10 +253,12 @@ function ProofFlow({
   cred,
   holder,
   onBack,
+  onProved,
 }: {
   cred: Credential;
   holder: string;
   onBack: () => void;
+  onProved: (txHash: string) => void;
 }) {
   const [stage, setStage] = useState<Stage>("generating");
   const [proof, setProof] = useState<{ proof: Uint8Array; publicInputs: Uint8Array } | null>(null);
@@ -222,6 +302,7 @@ function ProofFlow({
         ttlSecs: 30 * 86_400,
       });
       setTxHash(hash);
+      onProved(hash);
       setStage("confirmed");
     } catch (e) {
       setError((e as Error).message);
@@ -252,7 +333,7 @@ function ProofFlow({
             title="Generate proof"
             detail={
               stage === "generating"
-                ? "Running the Noir circuit in your browser — this can take a few seconds. Your secret never leaves this device."
+                ? "Generating witness on server, then proving in your browser — your secret never leaves this device."
                 : proof
                   ? `Proof ${truncateHash("0x" + toHex(proof.proof))} · ${proof.proof.length} bytes`
                   : "—"

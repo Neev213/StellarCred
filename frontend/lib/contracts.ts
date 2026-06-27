@@ -88,15 +88,40 @@ export async function submitProof(params: {
   );
 
   if (sent.status === "ERROR") {
-    throw new Error(`Submission rejected: ${JSON.stringify(sent.errorResult)}`);
+    // errorResult is an XDR object — JSON.stringify corrupts it; use hex.
+    const errHex =
+      sent.errorResult &&
+      typeof (sent.errorResult as { toXDR?: (f: string) => string }).toXDR === "function"
+        ? (sent.errorResult as { toXDR: (f: string) => string }).toXDR("hex")
+        : String(sent.errorResult);
+    throw new Error(`Submission rejected: ${errHex}`);
   }
 
-  // Poll for confirmation.
+  // Poll for confirmation. If the Stellar SDK's XDR parser hits an unknown
+  // union discriminant (e.g. TransactionMetaV4 on Protocol 22+ nodes while
+  // running stellar-sdk built for Protocol 21), it throws "Bad union switch: N".
+  // The TX still landed — NOT_FOUND would have been returned instead. Treat it
+  // as success and let isVerified() confirm via the contract's persistent store.
+  function isBadUnionSwitch(e: unknown): boolean {
+    return e instanceof Error && e.message.startsWith("Bad union switch");
+  }
+
   const start = Date.now();
-  let result = await srv.getTransaction(sent.hash);
+  let result;
+  try {
+    result = await srv.getTransaction(sent.hash);
+  } catch (e) {
+    if (isBadUnionSwitch(e)) return sent.hash;
+    throw e;
+  }
   while (result.status === "NOT_FOUND" && Date.now() - start < 30_000) {
     await new Promise((r) => setTimeout(r, 1500));
-    result = await srv.getTransaction(sent.hash);
+    try {
+      result = await srv.getTransaction(sent.hash);
+    } catch (e) {
+      if (isBadUnionSwitch(e)) return sent.hash;
+      throw e;
+    }
   }
   if (result.status !== "SUCCESS") {
     throw new Error(`Transaction ${sent.hash} did not succeed (${result.status}).`);

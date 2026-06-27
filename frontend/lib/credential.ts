@@ -17,6 +17,10 @@ export interface Credential {
   issuerPubY: number[];
   issuedAt: number;
   expiry: string;
+  /** Unix timestamp (seconds) when the proof was last successfully submitted. */
+  provedAt?: number;
+  /** Transaction hash of the last submitted proof. */
+  provedTxHash?: string;
 }
 
 export const TYPE_META: Record<
@@ -69,6 +73,16 @@ export function saveCredential(cred: Credential): Credential[] {
     cred,
     ...all.filter((c) => !(c.type === cred.type && c.commitment === cred.commitment)),
   ];
+  localStorage.setItem(KEY, JSON.stringify(next));
+  return next;
+}
+
+export function markProved(commitment: string, txHash: string): Credential[] {
+  const next = loadCredentials().map((c) =>
+    c.commitment === commitment
+      ? { ...c, provedAt: Math.floor(Date.now() / 1000), provedTxHash: txHash }
+      : c,
+  );
   localStorage.setItem(KEY, JSON.stringify(next));
   return next;
 }
