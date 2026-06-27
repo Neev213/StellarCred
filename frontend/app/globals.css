@@ -214,6 +214,25 @@ p { margin: 0; }
 
 .nav-right { display: flex; align-items: center; gap: 1rem; }
 
+/* Segmented Docs / Developers control in the header */
+.seg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--muted);
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.seg-link:hover { color: var(--text); }
+.seg-link.active {
+  color: var(--accent);
+  background: rgba(62, 207, 142, 0.1);
+}
+
 /* ---- Card ------------------------------------------------------------------- */
 
 .card {

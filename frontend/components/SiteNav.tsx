@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { IconBook2, IconCode } from "@tabler/icons-react";
 
 const LINKS = [
-  { href: "/verify",   label: "Get credential" },
   { href: "/holder",   label: "Holder" },
-  { href: "/issuer",   label: "Issuer" },
-  { href: "/verifier", label: "Demo" },
+  { href: "/verify",   label: "Try demo" },
+  { href: "/issuer",   label: "Issuer (demo)" },
+  { href: "/verifier", label: "Verifier" },
 ];
 
 function ShieldIcon() {
@@ -55,13 +56,31 @@ export function SiteNav() {
           ))}
         </nav>
 
-        <div className="nav-right">
+        <div
+          className="nav-right"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.25rem",
+            padding: "0.25rem",
+            borderRadius: "999px",
+            border: "1px solid var(--border)",
+            background: "rgba(255,255,255,0.02)",
+          }}
+        >
           <Link
             href="/docs"
-            className={`btn btn-secondary btn-sm${pathname.startsWith("/docs") ? " active" : ""}`}
-            style={{ letterSpacing: "-0.01em" }}
+            className={`seg-link${pathname.startsWith("/docs") ? " active" : ""}`}
           >
+            <IconBook2 size={14} stroke={1.8} />
             Docs
+          </Link>
+          <Link
+            href="/developers"
+            className={`seg-link${pathname.startsWith("/developers") ? " active" : ""}`}
+          >
+            <IconCode size={14} stroke={1.8} />
+            Developers
           </Link>
         </div>
       </div>

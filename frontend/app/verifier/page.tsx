@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { IconLock, IconCheck, IconCircle } from "@tabler/icons-react";
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { IconLock, IconCheck, IconCircle, IconArrowRight } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { useWallet } from "@/lib/wallet-context";
 import { Badge } from "@/components/Badge";
@@ -16,10 +18,20 @@ interface Requirement {
 
 const REQ_TYPES = ["kyc", "age", "income"] as const;
 
-export default function VerifierPage() {
+function VerifierInner() {
   const { address } = useWallet();
+  const searchParams = useSearchParams();
+
+  // When StellarCred redirects the user back after verification it appends
+  // sc_verified=true and sc_wallet=<address>. We trust the wallet param only to
+  // decide *which* address to read on-chain status for — the actual access
+  // decision still comes from ProofRegistry, never from the URL.
+  const scVerified = searchParams.get("sc_verified") === "true";
+  const scWallet = searchParams.get("sc_wallet");
+  const activeWallet = address ?? scWallet ?? null;
+
   // PrivPool gates deposits on three credential proofs, read live from the
-  // ProofRegistry once a wallet connects.
+  // ProofRegistry.
   const [reqs, setReqs] = useState<Requirement[]>([
     { label: "KYC verified", type: "kyc", proved: false },
     { label: "Age ≥ 18", type: "age", proved: false },
@@ -29,10 +41,10 @@ export default function VerifierPage() {
   const [checked, setChecked] = useState(false);
   const eligible = reqs.every((r) => r.proved);
 
-  // Reflect real on-chain status for each requirement whenever the connected
-  // wallet changes (including restored-on-reload connections).
+  // Reflect real on-chain status for each requirement whenever the wallet we
+  // care about changes — connected wallet, or the one handed back in sc_wallet.
   useEffect(() => {
-    if (!address) {
+    if (!activeWallet) {
       setChecked(false);
       return;
     }
@@ -40,7 +52,7 @@ export default function VerifierPage() {
     (async () => {
       try {
         const statuses = await Promise.all(
-          REQ_TYPES.map((t) => isVerified(address, t)),
+          REQ_TYPES.map((t) => isVerified(activeWallet, t)),
         );
         if (!cancelled) {
           setReqs((rs) => rs.map((r, i) => ({ ...r, proved: statuses[i].valid })));
@@ -54,16 +66,59 @@ export default function VerifierPage() {
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [activeWallet]);
 
   return (
     <>
-      <div className="between" style={{ marginBottom: "2.5rem" }}>
+      <div className="between" style={{ marginBottom: "2rem" }}>
         <div>
           <span className="eyebrow">Gated protocol · demo</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>PrivPool</h1>
         </div>
         <WalletButton />
+      </div>
+
+      {scVerified && (
+        <div
+          className="reveal"
+          style={{
+            marginBottom: "1.5rem",
+            padding: "0.85rem 1rem",
+            borderRadius: "var(--radius)",
+            background: "rgba(62,207,142,0.08)",
+            border: "1px solid rgba(62,207,142,0.35)",
+            fontSize: "0.875rem",
+            color: "var(--text)",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.6rem",
+          }}
+        >
+          <IconCheck size={18} color="var(--accent)" stroke={2.5} />
+          <span>
+            <strong>Verification complete — access granted.</strong>{" "}
+            <span className="muted">You were returned here from StellarCred automatically.</span>
+          </span>
+        </div>
+      )}
+
+      <div
+        style={{
+          marginBottom: "1.75rem",
+          padding: "0.75rem 1rem",
+          borderRadius: "var(--radius)",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid var(--border)",
+          fontSize: "0.8125rem",
+          color: "var(--muted)",
+          lineHeight: 1.6,
+        }}
+      >
+        <strong style={{ color: "var(--text)" }}>Simulates a third-party protocol.</strong>{" "}
+        Any DeFi pool, DAO, or app can gate access this way — one read-only call to{" "}
+        <span className="mono" style={{ fontSize: "0.75rem" }}>ProofRegistry.is_verified</span>.
+        It never sees the credential data, the commitment, or the proof itself. Only the
+        on-chain result: verified or not.
       </div>
 
       <ConfigBanner />
@@ -107,6 +162,17 @@ export default function VerifierPage() {
               reconnect here.
             </p>
           )}
+
+          {/* Demonstrates the full protocol → StellarCred → protocol loop without
+              needing a separate app: redirect to /verify, then bounce back. */}
+          <Link
+            href="/verify?return_url=/verifier&claim=kyc"
+            className="btn btn-secondary btn-sm"
+            style={{ marginTop: "1.25rem", width: "100%" }}
+          >
+            Simulate protocol redirect
+            <IconArrowRight size={14} />
+          </Link>
         </div>
 
         <div
@@ -156,5 +222,13 @@ export default function VerifierPage() {
         </div>
       </div>
     </>
+  );
+}
+
+export default function VerifierPage() {
+  return (
+    <Suspense fallback={null}>
+      <VerifierInner />
+    </Suspense>
   );
 }

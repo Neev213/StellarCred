@@ -312,10 +312,10 @@ export default function DocsPage() {
           <IconShieldCheck size={12} stroke={2} />
           Documentation
         </span>
-        <h1 style={{ marginBottom: "0.9rem", fontSize: "clamp(2rem,4vw,2.8rem)" }}>
+        <h1 style={{ marginBottom: "0.6rem", fontSize: "clamp(1.8rem, 3.5vw, 2.5rem)" }}>
           About StellarCred
         </h1>
-        <p className="lead" style={{ maxWidth: 600 }}>
+        <p className="lead" style={{ fontSize: "0.95rem" }}>
           Zero-knowledge credential infrastructure on Stellar. Prove facts about
           yourself without the data ever touching the chain.
         </p>
@@ -596,9 +596,9 @@ export default function DocsPage() {
             </P>
 
             <Callout variant="warn">
-              The demo uses a key derived from <Code>sha256("stellarcred-demo-issuer")</Code> and
-              lives only in the Next.js server process. In production, each issuer would hold their
-              own secret key in a hardware security module or secrets manager.
+              The demo issuer&rsquo;s signing key lives only in the Next.js server process — never in
+              the browser. In production, each issuer would hold their own secret key in a hardware
+              security module or secrets manager.
             </Callout>
           </section>
 
