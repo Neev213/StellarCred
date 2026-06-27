@@ -89,25 +89,47 @@ function buildInputs(
   }
 }
 
+// bb.js's UltraHonkBackend always spawns a Web Worker from its prebuilt
+// main.worker.js (`new Worker(new URL("./main.worker.js", import.meta.url))`).
+// If Next.js/webpack bundles bb.js, it re-wraps that already-bundled worker and
+// corrupts it ("Object.defineProperty called on non-object"). So instead we load
+// bb.js as a *native* ES module from /public/bb (copied there by
+// scripts/copy-bb.mjs on predev/prebuild). `webpackIgnore` keeps webpack from
+// touching the import; the browser then resolves main.worker.js / barretenberg.js
+// relative to /bb/index.js, untouched.
+type BbModule = {
+  UltraHonkBackend: new (
+    bytecode: string,
+    options?: { threads?: number },
+  ) => {
+    generateProof: (
+      witness: Uint8Array,
+      options?: { keccak?: boolean },
+    ) => Promise<{ proof: Uint8Array; publicInputs: string[] }>;
+    destroy: () => Promise<void>;
+  };
+};
+
+async function loadBb(): Promise<BbModule> {
+  // @ts-expect-error - resolved at runtime by the browser from /public/bb, not a build-time module.
+  return import(/* webpackIgnore: true */ "/bb/index.js") as Promise<BbModule>;
+}
+
 export async function generateProof(
   type: CredentialType,
   credential: Record<string, unknown>,
 ): Promise<GeneratedProof> {
   const circuit = await loadCircuit(type);
   const { Noir } = await import("@noir-lang/noir_js");
-  const { UltraHonkBackend } = await import("@aztec/bb.js");
+  const { UltraHonkBackend } = await loadBb();
 
   // 1. Execute the circuit to produce the witness (private inputs stay local).
   const noir = new Noir(circuit as never);
   const { witness } = await noir.execute(buildInputs(type, credential));
 
   // 2. Generate the UltraHonk proof. `keccak` matches the verifier's transcript.
-  //    Force single-threaded: the multithreaded path loads main.worker.js via
-  //    `new URL(...)`, which is already a pre-compiled webpack bundle inside
-  //    @aztec/bb.js. Next.js re-processes it through its own webpack, causing
-  //    a double-bundle crash ("Object.defineProperty called on non-object").
-  //    Single-threaded uses barretenberg.js (WASM inlined as a data URI) with
-  //    no worker at all — slower but reliable.
+  //    threads:1 keeps proving on a single worker thread (no SharedArrayBuffer
+  //    needed, so no COOP/COEP headers required).
   const backend = new UltraHonkBackend(circuit.bytecode, { threads: 1 });
   try {
     const { proof, publicInputs } = await backend.generateProof(witness, {
