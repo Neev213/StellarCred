@@ -44,6 +44,14 @@ function VerifyInner() {
   const requiredClaim = claimParam && VALID_CLAIMS.includes(claimParam) ? claimParam : null;
   const locked = !!requiredClaim;
 
+  // Protocol-supplied proof parameters. These flow into the issued credential
+  // so the witness route can use them at prove time instead of hardcoded values.
+  const claimParamsFromUrl = {
+    threshold_years: searchParams.get("threshold_years") ?? undefined,
+    threshold: searchParams.get("threshold") ?? undefined,
+    restricted: searchParams.get("restricted")?.split(",").filter(Boolean) ?? undefined,
+  };
+
   // Multi-select: one verification can issue several credentials at once.
   const [selected, setSelected] = useState<CredentialType[]>(
     requiredClaim ? [requiredClaim] : ["kyc"],
@@ -106,16 +114,20 @@ function VerifyInner() {
     setBusy(true);
     setError("");
     try {
+      if (!DEMO_ISSUER_ID) {
+        throw new Error("NEXT_PUBLIC_ISSUER_ADDRESS is not set — cannot issue credentials");
+      }
       const res = await fetch("/api/issue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           credential_types: selected,
           holder: address,
-          issuerId: DEMO_ISSUER_ID || address,
+          issuerId: DEMO_ISSUER_ID,
           issuerName: "StellarCred Authority",
           expiry,
           attributes,
+          claimParams: claimParamsFromUrl,
         }),
       });
       if (!res.ok) {

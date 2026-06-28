@@ -107,16 +107,40 @@ export async function getClaims(wallet: string): Promise<Claim[]> {
  * Build a StellarCred verification URL a protocol can redirect users to. After
  * the user verifies, StellarCred sends them back to `returnUrl` with
  * `sc_verified=true` and `sc_wallet=<address>` appended.
+ *
+ * Pass `claimParams` to customize the proof thresholds for parameterized
+ * claims. For example, to require age ≥ 21 instead of the default (18):
+ *   buildVerifyUrl({ returnUrl, claim: 'age', claimParams: { threshold_years: '21' } })
+ *
+ * For jurisdiction, supply a comma-separated or array of ISO 3166-1 numeric
+ * country codes to restrict:
+ *   buildVerifyUrl({ returnUrl, claim: 'jurisdiction', claimParams: { restricted: ['840','364'] } })
  */
 export function buildVerifyUrl(options: {
   returnUrl: string;
   claim: string;
   baseUrl?: string;
+  claimParams?: {
+    threshold_years?: string;
+    threshold?: string;
+    restricted?: string | string[];
+  };
 }): string {
   const base = options.baseUrl ?? BASE_URL;
   const url = new URL("/verify", base);
   url.searchParams.set("return_url", options.returnUrl);
   url.searchParams.set("claim", options.claim);
+  if (options.claimParams) {
+    const { threshold_years, threshold, restricted } = options.claimParams;
+    if (threshold_years) url.searchParams.set("threshold_years", threshold_years);
+    if (threshold) url.searchParams.set("threshold", threshold);
+    if (restricted) {
+      url.searchParams.set(
+        "restricted",
+        Array.isArray(restricted) ? restricted.join(",") : restricted,
+      );
+    }
+  }
   return url.toString();
 }
 

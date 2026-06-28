@@ -125,6 +125,12 @@ const TYPE_META: Record<string, { title: string; claim: string }> = {
   jurisdiction: { title: "Jurisdiction Eligible", claim: "country not restricted" },
 };
 
+interface ClaimParams {
+  threshold_years?: string;
+  threshold?: string;
+  restricted?: string[];
+}
+
 interface IssueParams {
   type: string;
   holder: string;
@@ -132,11 +138,12 @@ interface IssueParams {
   issuerName: string;
   expiry: string;
   attributes: Record<string, string>;
+  claimParams?: ClaimParams;
 }
 
 // Build one complete, independent credential for a single type. Each gets its
 // own preimage/salt/commitment/signature — they share nothing but the issuer.
-async function buildCredential({ type, holder, issuerId, issuerName, expiry, attributes }: IssueParams) {
+async function buildCredential({ type, holder, issuerId, issuerName, expiry, attributes, claimParams }: IssueParams) {
   const value = attributeToValue(type, attributes);
   const salt = randomField();
   const commitment = await poseidonCommit(value, salt);
@@ -157,6 +164,7 @@ async function buildCredential({ type, holder, issuerId, issuerName, expiry, att
     issuerPubY: issuerY,
     issuedAt: Math.floor(Date.now() / 1000),
     expiry,
+    ...(claimParams && Object.values(claimParams).some((v) => v !== undefined) ? { claimParams } : {}),
   };
 }
 
@@ -171,6 +179,7 @@ export async function POST(req: NextRequest) {
     expiry?: string;
     attributes?: Record<string, string>;
     attribute?: string;
+    claimParams?: ClaimParams;
   };
 
   try {
@@ -184,6 +193,7 @@ export async function POST(req: NextRequest) {
     issuerId,
     issuerName = "StellarCred Authority",
     expiry = "90 days",
+    claimParams,
   } = body;
 
   // Normalize to the multi-claim shape. Legacy callers send { type, attribute };
@@ -222,7 +232,7 @@ export async function POST(req: NextRequest) {
     const credentials = [];
     for (const type of uniqueTypes) {
       credentials.push(
-        await buildCredential({ type, holder, issuerId, issuerName, expiry, attributes }),
+        await buildCredential({ type, holder, issuerId, issuerName, expiry, attributes, claimParams }),
       );
     }
     return NextResponse.json({ credentials });

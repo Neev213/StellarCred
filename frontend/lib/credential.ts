@@ -2,6 +2,12 @@
 
 import type { CredentialType } from "./stellar";
 
+export interface ClaimParams {
+  threshold_years?: string;
+  threshold?: string;
+  restricted?: string[];
+}
+
 export interface Credential {
   type: CredentialType;
   title: string;
@@ -17,6 +23,8 @@ export interface Credential {
   issuerPubY: number[];
   issuedAt: number;
   expiry: string;
+  /** Protocol-specific proof parameters (e.g. age threshold, restricted list). */
+  claimParams?: ClaimParams;
   /** Unix timestamp (seconds) when the proof was last successfully submitted. */
   provedAt?: number;
   /** Transaction hash of the last submitted proof. */

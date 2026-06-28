@@ -5,13 +5,31 @@ import incomeCircuit from "../../../public/circuits/income.json";
 import jurisdictionCircuit from "../../../public/circuits/jurisdiction.json";
 import kycCircuit from "../../../public/circuits/kyc.json";
 
-// Same restricted-country list used client-side.
-const RESTRICTED = ["840", "364", "408", "0", "0", "0", "0", "0"];
+// Default claim params — used when a credential has no protocol-specific values.
+const DEFAULT_THRESHOLD_YEARS = "18";
+const DEFAULT_INCOME_THRESHOLD = "200000";
+const DEFAULT_RESTRICTED = ["840", "364", "408", "0", "0", "0", "0", "0"];
+
+const RESTRICTED_LEN = 8;
+
+function normalizeRestricted(list: string[]): string[] {
+  // The circuit expects exactly RESTRICTED_LEN entries; pad with "0".
+  const trimmed = list.slice(0, RESTRICTED_LEN);
+  while (trimmed.length < RESTRICTED_LEN) trimmed.push("0");
+  return trimmed;
+}
+
+interface ClaimParams {
+  threshold_years?: string;
+  threshold?: string;
+  restricted?: string[];
+}
 
 function buildInputs(type: string, cred: Record<string, unknown>): InputMap {
   const value = String(cred.value);
   const salt = String(cred.salt);
   const commitment = String(cred.commitment);
+  const params = (cred.claimParams ?? {}) as ClaimParams;
   const sigInputs = {
     sig: cred.sig as number[],
     issuer_x: cred.issuerPubX as number[],
@@ -25,12 +43,24 @@ function buildInputs(type: string, cred: Record<string, unknown>): InputMap {
         ...sigInputs,
         commitment,
         current_date: String(Math.floor(Date.now() / 86_400_000)),
-        threshold_years: "18",
+        threshold_years: params.threshold_years ?? DEFAULT_THRESHOLD_YEARS,
       };
     case "income":
-      return { income: value, salt, ...sigInputs, commitment, threshold: "200000" };
+      return {
+        income: value,
+        salt,
+        ...sigInputs,
+        commitment,
+        threshold: params.threshold ?? DEFAULT_INCOME_THRESHOLD,
+      };
     case "jurisdiction":
-      return { country_code: value, salt, ...sigInputs, commitment, restricted: RESTRICTED };
+      return {
+        country_code: value,
+        salt,
+        ...sigInputs,
+        commitment,
+        restricted: normalizeRestricted(params.restricted ?? DEFAULT_RESTRICTED),
+      };
     case "kyc":
     default:
       return { secret: value, salt, ...sigInputs, commitment };
