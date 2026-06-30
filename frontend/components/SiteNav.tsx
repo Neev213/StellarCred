@@ -5,10 +5,10 @@ import { usePathname } from "next/navigation";
 import { IconBook2, IconCode } from "@tabler/icons-react";
 
 const LINKS = [
-  { href: "/holder",   label: "Holder" },
-  { href: "/verify",   label: "Try demo" },
-  { href: "/issuer",   label: "Issuer (demo)" },
-  { href: "/verifier", label: "Verifier" },
+  { href: "/holder",   label: "Wallet" },
+  { href: "/verify",   label: "Verify" },
+  { href: "/issuer",   label: "Issuer" },
+  { href: "/apps",     label: "Apps" },
 ];
 
 function ShieldIcon() {

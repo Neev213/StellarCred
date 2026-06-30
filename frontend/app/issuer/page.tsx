@@ -25,6 +25,7 @@ const DEFAULT_ATTR: Record<CredentialType, string> = {
   age: "1995-06-15",
   income: "250000",
   jurisdiction: "566",
+  funds: "50000",
 };
 
 const COUNTRIES = [

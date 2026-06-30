@@ -156,17 +156,15 @@ async function verifyWithSmileID(
   return { ok, code, text };
 }
 
-// Plaid balance attestation relay. Returns the available balance in USD cents
-// from the first checking/savings account on the linked item.
-// Mock mode: no PLAID_ACCESS_TOKEN set → always passes with the supplied balance.
-async function verifyWithPlaid(
-  attributes: Record<string, string>,
-): Promise<{ ok: boolean; balance?: number; error?: string }> {
+// Plaid balance attestation relay. Returns the verified balance from the user's
+// bank — this becomes the credential value, not what the user typed.
+// Mock mode: no PLAID_ACCESS_TOKEN set → returns a mock balance of $50,000.
+async function verifyWithPlaid(): Promise<{ ok: boolean; balance?: number; error?: string }> {
   if (!process.env.PLAID_ACCESS_TOKEN) {
     console.warn(
-      "[StellarCred] PLAID_ACCESS_TOKEN not set — running in mock mode, balance always passes",
+      "[StellarCred] PLAID_ACCESS_TOKEN not set — running in mock mode, returning mock balance $50,000",
     );
-    return { ok: true };
+    return { ok: true, balance: 50000 };
   }
 
   const env = process.env.PLAID_ENV ?? "sandbox";
@@ -198,14 +196,12 @@ async function verifyWithPlaid(
   const accounts: Array<{ type: string; balances: { available: number | null } }> =
     result.accounts ?? [];
   const depository = accounts.filter((a) => a.type === "depository");
-  const maxBalance = depository.reduce(
+  const verifiedBalance = depository.reduce(
     (max, a) => Math.max(max, a.balances.available ?? 0),
     0,
   );
 
-  // Compare against the claimed balance from the request.
-  const claimed = parseInt(attributes.balance ?? "0", 10);
-  return { ok: maxBalance >= claimed, balance: maxBalance };
+  return { ok: true, balance: verifiedBalance };
 }
 
 const VALID_TYPES = ["kyc", "age", "income", "jurisdiction", "funds"];
@@ -344,16 +340,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Gate funds issuance on Plaid balance attestation.
+  // Gate funds issuance on Plaid balance attestation. Plaid is the source of
+  // truth — we overwrite any user-supplied balance with the verified figure.
   const needsFunds = credentialTypes.includes("funds");
   if (needsFunds) {
-    const plaid = await verifyWithPlaid(attributes);
+    const plaid = await verifyWithPlaid();
     if (!plaid.ok) {
       return NextResponse.json(
         { error: plaid.error ?? "Balance verification failed" },
         { status: 403 },
       );
     }
+    attributes.balance = String(plaid.balance ?? 0);
   }
 
   try {

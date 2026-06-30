@@ -166,7 +166,7 @@ function VerifierInner() {
           {/* Demonstrates the full protocol → StellarCred → protocol loop without
               needing a separate app: redirect to /verify, then bounce back. */}
           <Link
-            href="/verify?return_url=/verifier&claim=kyc"
+            href="/verify?return_url=/apps&claim=kyc"
             className="btn btn-secondary btn-sm"
             style={{ marginTop: "1.25rem", width: "100%" }}
           >

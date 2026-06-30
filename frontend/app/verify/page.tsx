@@ -54,13 +54,12 @@ function VerifyInner() {
 
   // Multi-select: one verification can issue several credentials at once.
   const [selected, setSelected] = useState<CredentialType[]>(
-    requiredClaim ? [requiredClaim] : ["kyc"],
+    requiredClaim ? [requiredClaim] : [],
   );
   const [attributes, setAttributes] = useState<Record<string, string>>({
     date_of_birth: "1995-06-15",
     income: "250000",
     country_code: "566",
-    balance: "50000",
   });
   const [expiry, setExpiry] = useState("90 days");
   const [busy, setBusy] = useState(false);
@@ -325,14 +324,10 @@ function VerifyInner() {
                         </div>
                       )}
                       {on && key === "funds" && (
-                        <div style={{ marginTop: "0.75rem" }} onClick={(e) => e.stopPropagation()}>
-                          <label className="field-label">{m.attribute}</label>
-                          <input
-                            type="number"
-                            value={attributes.balance}
-                            onChange={(e) => setAttr("balance", e.target.value)}
-                          />
-                        </div>
+                        <p className="faint" style={{ fontSize: "0.75rem", margin: "0.75rem 0 0" }}
+                           onClick={(e) => e.stopPropagation()}>
+                          Your balance is read directly from your connected bank via Plaid. Nothing is stored.
+                        </p>
                       )}
                       {on && key === "jurisdiction" && (
                         <div style={{ marginTop: "0.75rem" }} onClick={(e) => e.stopPropagation()}>
