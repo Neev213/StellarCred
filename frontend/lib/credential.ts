@@ -49,6 +49,12 @@ export const TYPE_META: Record<
     issuable: true,
     attribute: "Country (ISO numeric)",
   },
+  funds: {
+    title: "Proof of Funds",
+    claim: "balance > $10,000",
+    issuable: true,
+    attribute: "Account balance (USD)",
+  },
 };
 
 // BN254 scalar field is ~254 bits; 31 random bytes (248 bits) is always in range.

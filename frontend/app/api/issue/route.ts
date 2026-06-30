@@ -53,6 +53,11 @@ function attributeToValue(type: string, attributes: Record<string, string>): str
       if (!Number.isFinite(country)) throw new Error("jurisdiction credential requires attributes.country_code");
       return String(country);
     }
+    case "funds": {
+      const balance = parseInt(attributes.balance ?? "", 10);
+      if (!Number.isFinite(balance)) throw new Error("funds credential requires attributes.balance");
+      return String(balance);
+    }
     default:
       throw new Error(`Unknown credential type: ${type}`);
   }
@@ -151,13 +156,66 @@ async function verifyWithSmileID(
   return { ok, code, text };
 }
 
-const VALID_TYPES = ["kyc", "age", "income", "jurisdiction"];
+// Plaid balance attestation relay. Returns the available balance in USD cents
+// from the first checking/savings account on the linked item.
+// Mock mode: no PLAID_ACCESS_TOKEN set → always passes with the supplied balance.
+async function verifyWithPlaid(
+  attributes: Record<string, string>,
+): Promise<{ ok: boolean; balance?: number; error?: string }> {
+  if (!process.env.PLAID_ACCESS_TOKEN) {
+    console.warn(
+      "[StellarCred] PLAID_ACCESS_TOKEN not set — running in mock mode, balance always passes",
+    );
+    return { ok: true };
+  }
+
+  const env = process.env.PLAID_ENV ?? "sandbox";
+  const baseUrl =
+    env === "production"
+      ? "https://production.plaid.com"
+      : env === "development"
+        ? "https://development.plaid.com"
+        : "https://sandbox.plaid.com";
+
+  const response = await fetch(`${baseUrl}/accounts/balance/get`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: process.env.PLAID_CLIENT_ID,
+      secret: process.env.PLAID_SECRET,
+      access_token: process.env.PLAID_ACCESS_TOKEN,
+    }),
+  });
+
+  const result = await response.json();
+  console.log("[Plaid]", response.status, result.error_code ?? "ok");
+
+  if (!response.ok || result.error_code) {
+    return { ok: false, error: result.error_message ?? "Plaid error" };
+  }
+
+  // Use the highest available balance across depository accounts.
+  const accounts: Array<{ type: string; balances: { available: number | null } }> =
+    result.accounts ?? [];
+  const depository = accounts.filter((a) => a.type === "depository");
+  const maxBalance = depository.reduce(
+    (max, a) => Math.max(max, a.balances.available ?? 0),
+    0,
+  );
+
+  // Compare against the claimed balance from the request.
+  const claimed = parseInt(attributes.balance ?? "0", 10);
+  return { ok: maxBalance >= claimed, balance: maxBalance };
+}
+
+const VALID_TYPES = ["kyc", "age", "income", "jurisdiction", "funds"];
 
 const TYPE_TITLE: Record<string, string> = {
   kyc: "KYC Complete",
   age: "Age Verified",
   income: "Accredited Investor",
   jurisdiction: "Jurisdiction Eligible",
+  funds: "Proof of Funds",
 };
 
 function buildClaimLabel(type: string, claimParams?: ClaimParams): string {
@@ -167,6 +225,10 @@ function buildClaimLabel(type: string, claimParams?: ClaimParams): string {
     case "income": {
       const t = Number(claimParams?.threshold ?? "200000");
       return `income > $${t.toLocaleString("en-US")}`;
+    }
+    case "funds": {
+      const t = Number(claimParams?.threshold ?? "10000");
+      return `balance > $${t.toLocaleString("en-US")}`;
     }
     case "jurisdiction":
       return "country not restricted";
@@ -270,13 +332,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "issuerId is required" }, { status: 400 });
   }
 
-  // Gate issuance on identity verification (mock-passes without an API key).
-  const kyc = await verifyWithSmileID(attributes);
-  if (!kyc.ok) {
-    return NextResponse.json(
-      { error: "Identity verification failed", smileid: { code: kyc.code, text: kyc.text } },
-      { status: 403 },
-    );
+  // Gate KYC/age/jurisdiction issuance on SmileID identity verification.
+  const needsKyc = credentialTypes.some((t) => ["kyc", "age", "jurisdiction"].includes(t));
+  if (needsKyc) {
+    const kyc = await verifyWithSmileID(attributes);
+    if (!kyc.ok) {
+      return NextResponse.json(
+        { error: "Identity verification failed", smileid: { code: kyc.code, text: kyc.text } },
+        { status: 403 },
+      );
+    }
+  }
+
+  // Gate funds issuance on Plaid balance attestation.
+  const needsFunds = credentialTypes.includes("funds");
+  if (needsFunds) {
+    const plaid = await verifyWithPlaid(attributes);
+    if (!plaid.ok) {
+      return NextResponse.json(
+        { error: plaid.error ?? "Balance verification failed" },
+        { status: 403 },
+      );
+    }
   }
 
   try {

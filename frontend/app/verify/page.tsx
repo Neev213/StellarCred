@@ -60,6 +60,7 @@ function VerifyInner() {
     date_of_birth: "1995-06-15",
     income: "250000",
     country_code: "566",
+    balance: "50000",
   });
   const [expiry, setExpiry] = useState("90 days");
   const [busy, setBusy] = useState(false);
@@ -320,6 +321,16 @@ function VerifyInner() {
                             type="number"
                             value={attributes.income}
                             onChange={(e) => setAttr("income", e.target.value)}
+                          />
+                        </div>
+                      )}
+                      {on && key === "funds" && (
+                        <div style={{ marginTop: "0.75rem" }} onClick={(e) => e.stopPropagation()}>
+                          <label className="field-label">{m.attribute}</label>
+                          <input
+                            type="number"
+                            value={attributes.balance}
+                            onChange={(e) => setAttr("balance", e.target.value)}
                           />
                         </div>
                       )}

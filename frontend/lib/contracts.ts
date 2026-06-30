@@ -31,10 +31,9 @@ async function getServer() {
 const PROOF_REGISTRY_ERRORS: Record<number, string> = {
   1: "Contracts not initialised — check that all contract IDs are set in the environment.",
   2: "Proof verification failed — the ZK proof is invalid or was generated against the wrong circuit VK.",
-  3: "Unknown credential type.",
-  4: "Not authorised — wallet signature missing or wrong account.",
-  5: "Issuer not trusted — the issuer address isn't registered for this credential type.",
-  6: "Issuer key mismatch — this credential was signed with a key that doesn't match what's registered on-chain. Re-issue the credential and try again.",
+  3: "Not authorised — wallet signature missing or wrong account.",
+  4: "Issuer not trusted — the issuer address isn't registered for this credential type.",
+  5: "Issuer key mismatch — this credential was signed with a key that doesn't match what's registered on-chain. Re-issue the credential and try again.",
 };
 
 export interface ContractError {

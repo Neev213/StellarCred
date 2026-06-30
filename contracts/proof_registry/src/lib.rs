@@ -12,7 +12,7 @@
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, panic_with_error,
-    symbol_short, Address, Bytes, BytesN, Env, Symbol,
+    Address, Bytes, BytesN, Env, Symbol,
 };
 
 // Persistent-entry lifetime management (~5s ledgers).
@@ -25,10 +25,7 @@ const PROOF_TTL: u32 = 90 * DAY_IN_LEDGERS;
 /// never the verifier's exported wasm symbols.
 #[contractclient(name = "VerifierClient")]
 pub trait VerifierInterface {
-    fn verify_kyc_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
-    fn verify_age_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
-    fn verify_jurisdiction_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
-    fn verify_income_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
+    fn verify_proof(env: Env, credential_type: Symbol, proof: Bytes, public_inputs: Bytes) -> bool;
 }
 
 /// Typed client for the deployed IssuerRegistry contract.
@@ -66,12 +63,11 @@ pub enum DataKey {
 pub enum Error {
     NotInitialized = 1,
     VerificationFailed = 2,
-    UnknownCredentialType = 3,
-    NotAuthorized = 4,
-    IssuerNotTrusted = 5,
+    NotAuthorized = 3,
+    IssuerNotTrusted = 4,
     /// The public key the proof was made against does not match the registered
     /// issuer's key.
-    IssuerKeyMismatch = 6,
+    IssuerKeyMismatch = 5,
 }
 
 #[contract]
@@ -115,10 +111,10 @@ impl ProofRegistry {
             panic_with_error!(&env, Error::IssuerKeyMismatch);
         }
 
-        // 3. The proof must verify against the registered VK.
+        // 3. The proof must verify against the registered VK for this type.
+        //    VerifierClient panics with VkNotSet if no VK is registered for the type.
         let verifier = VerifierClient::new(&env, &Self::verifier(&env));
-        let ok = Self::dispatch_verify(&env, &verifier, &credential_type, &proof, &public_inputs);
-        if !ok {
+        if !verifier.verify_proof(&credential_type, &proof, &public_inputs) {
             panic_with_error!(&env, Error::VerificationFailed);
         }
 
@@ -163,26 +159,6 @@ impl ProofRegistry {
 
     pub fn issuer_registry_address(env: Env) -> Address {
         Self::issuer_registry(&env)
-    }
-
-    fn dispatch_verify(
-        env: &Env,
-        verifier: &VerifierClient,
-        credential_type: &Symbol,
-        proof: &Bytes,
-        public_inputs: &Bytes,
-    ) -> bool {
-        if *credential_type == symbol_short!("kyc") {
-            verifier.verify_kyc_proof(proof, public_inputs)
-        } else if *credential_type == symbol_short!("age") {
-            verifier.verify_age_proof(proof, public_inputs)
-        } else if *credential_type == Symbol::new(env, "jurisdiction") {
-            verifier.verify_jurisdiction_proof(proof, public_inputs)
-        } else if *credential_type == symbol_short!("income") {
-            verifier.verify_income_proof(proof, public_inputs)
-        } else {
-            panic_with_error!(env, Error::UnknownCredentialType)
-        }
     }
 
     /// True iff the secp256k1 public key embedded in `public_inputs` (fields

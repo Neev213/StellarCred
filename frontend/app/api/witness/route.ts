@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { InputMap } from "@noir-lang/noir_js";
 import ageCircuit from "../../../public/circuits/age.json";
+import fundsCircuit from "../../../public/circuits/funds.json";
 import incomeCircuit from "../../../public/circuits/income.json";
 import jurisdictionCircuit from "../../../public/circuits/jurisdiction.json";
 import kycCircuit from "../../../public/circuits/kyc.json";
@@ -8,6 +9,7 @@ import kycCircuit from "../../../public/circuits/kyc.json";
 // Default claim params — used when a credential has no protocol-specific values.
 const DEFAULT_THRESHOLD_YEARS = "18";
 const DEFAULT_INCOME_THRESHOLD = "200000";
+const DEFAULT_FUNDS_THRESHOLD = "10000";
 const DEFAULT_RESTRICTED = ["840", "364", "408", "0", "0", "0", "0", "0"];
 
 const RESTRICTED_LEN = 8;
@@ -61,6 +63,14 @@ function buildInputs(type: string, cred: Record<string, unknown>): InputMap {
         commitment,
         restricted: normalizeRestricted(params.restricted ?? DEFAULT_RESTRICTED),
       };
+    case "funds":
+      return {
+        balance: value,
+        salt,
+        ...sigInputs,
+        commitment,
+        threshold: params.threshold ?? DEFAULT_FUNDS_THRESHOLD,
+      };
     case "kyc":
     default:
       return { secret: value, salt, ...sigInputs, commitment };
@@ -70,6 +80,7 @@ function buildInputs(type: string, cred: Record<string, unknown>): InputMap {
 function circuitFor(type: string) {
   switch (type) {
     case "age": return ageCircuit;
+    case "funds": return fundsCircuit;
     case "income": return incomeCircuit;
     case "jurisdiction": return jurisdictionCircuit;
     case "kyc":
