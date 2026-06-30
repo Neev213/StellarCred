@@ -131,7 +131,13 @@ function VerifyInner() {
         }),
       });
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+          smileid?: { code: string; text: string };
+        } | null;
+        if (data?.smileid) {
+          console.error("[SmileID]", data.smileid.code, data.smileid.text);
+        }
         throw new Error(data?.error ?? "Issuing failed");
       }
       const { credentials } = (await res.json()) as { credentials: Credential[] };

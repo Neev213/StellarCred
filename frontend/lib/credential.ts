@@ -39,7 +39,7 @@ export const TYPE_META: Record<
   age: { title: "Age Verified", claim: "age ≥ 18", issuable: true, attribute: "Date of birth" },
   income: {
     title: "Accredited Investor",
-    claim: "income > $200k",
+    claim: "income > $200,000",
     issuable: true,
     attribute: "Annual income (USD)",
   },

@@ -196,7 +196,7 @@ export default function Home() {
         <div style={{ marginBottom: "2rem" }}>
           <p className="eyebrow" style={{ marginBottom: "0.75rem" }}>Infrastructure</p>
           <h2>Verified once. Trusted everywhere.</h2>
-          <p className="lead" style={{ maxWidth: 580, marginTop: "0.85rem" }}>
+          <p className="lead" style={{ fontSize: "1rem", marginTop: "0.5rem" }}>
             Any protocol on Stellar can verify your credentials in one contract
             call. No API. No backend. No re-verification.
           </p>

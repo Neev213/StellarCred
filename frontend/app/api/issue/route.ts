@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { randomBytes, createHmac } from "crypto";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 // Resolved by webpack at build time — avoids process.cwd() which is unreliable
@@ -87,43 +87,94 @@ function signCommitment(commitment: string): {
 //
 // Mock mode: with no SMILEID_API_KEY set, verification always passes so local
 // development and the sandbox demo work without provider credentials.
-async function verifyWithSmileID(attributes: Record<string, string>): Promise<boolean> {
+
+// SmileID authenticates via HMAC-SHA256, not Bearer tokens.
+// signature = base64(HMAC_SHA256(timestamp + partner_id + "sid_request", api_key))
+function smileIDSignature(
+  partnerId: string,
+  apiKey: string,
+): { timestamp: string; signature: string } {
+  const timestamp = new Date().toISOString();
+  const signature = createHmac("sha256", apiKey)
+    .update(timestamp + partnerId + "sid_request")
+    .digest("base64");
+  return { timestamp, signature };
+}
+
+async function verifyWithSmileID(
+  attributes: Record<string, string>,
+): Promise<{ ok: boolean; code: string; text: string }> {
   if (!process.env.SMILEID_API_KEY) {
     console.warn(
       "[StellarCred] SMILEID_API_KEY not set — running in mock mode, verification always passes",
     );
-    return true;
+    return { ok: true, code: "mock", text: "mock mode" };
   }
 
-  const response = await fetch("https://testapi.smileidentity.com/v1/id_verification", {
+  const apiKey = process.env.SMILEID_API_KEY;
+  const partnerId = process.env.SMILEID_PARTNER_ID ?? "";
+  const isSandbox = (process.env.SMILEID_ENVIRONMENT ?? "sandbox") !== "production";
+  const baseUrl = isSandbox
+    ? "https://testapi.smileidentity.com"
+    : "https://api.smileidentity.com";
+
+  const { timestamp, signature } = smileIDSignature(partnerId, apiKey);
+
+  const response = await fetch(`${baseUrl}/v1/id_verification`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.SMILEID_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      partner_id: process.env.SMILEID_PARTNER_ID,
+      partner_id: partnerId,
+      timestamp,
+      signature,
       country: attributes.country ?? "NG",
-      id_type: "NIN_SLIP",
-      id_number: attributes.id_number ?? "00000000000",
+      id_type: process.env.SMILEID_ID_TYPE ?? "NIN_V2",
+      id_number: attributes.id_number ?? "",
       first_name: attributes.first_name ?? "",
       last_name: attributes.last_name ?? "",
+      partner_params: {
+        job_id: randomBytes(16).toString("hex"),
+        user_id: randomBytes(16).toString("hex"),
+        job_type: 5,
+        ...(isSandbox ? { sandbox_result: "0" } : {}),
+      },
     }),
   });
 
   const result = await response.json();
-  // SmileID returns ResultCode "1020" for an exact match.
-  return result.ResultCode === "1020" || result.result?.ResultCode === "1020";
+  const code: string = result.ResultCode ?? result.result?.ResultCode ?? "";
+  const text: string = result.ResultText ?? result.result?.ResultText ?? "";
+  console.log("[SmileID]", response.status, code, text);
+
+  // 1012 = sandbox success; 1020 = production exact match; 1021 = partial match.
+  const ok = code === "1012" || code === "1020" || code === "1021";
+  return { ok, code, text };
 }
 
 const VALID_TYPES = ["kyc", "age", "income", "jurisdiction"];
 
-const TYPE_META: Record<string, { title: string; claim: string }> = {
-  kyc: { title: "KYC Complete", claim: "identity verified" },
-  age: { title: "Age Verified", claim: "age >= 18" },
-  income: { title: "Accredited Investor", claim: "income > $200k" },
-  jurisdiction: { title: "Jurisdiction Eligible", claim: "country not restricted" },
+const TYPE_TITLE: Record<string, string> = {
+  kyc: "KYC Complete",
+  age: "Age Verified",
+  income: "Accredited Investor",
+  jurisdiction: "Jurisdiction Eligible",
 };
+
+function buildClaimLabel(type: string, claimParams?: ClaimParams): string {
+  switch (type) {
+    case "age":
+      return `age ≥ ${claimParams?.threshold_years ?? "18"}`;
+    case "income": {
+      const t = Number(claimParams?.threshold ?? "200000");
+      return `income > $${t.toLocaleString("en-US")}`;
+    }
+    case "jurisdiction":
+      return "country not restricted";
+    case "kyc":
+    default:
+      return "identity verified";
+  }
+}
 
 interface ClaimParams {
   threshold_years?: string;
@@ -148,11 +199,10 @@ async function buildCredential({ type, holder, issuerId, issuerName, expiry, att
   const salt = randomField();
   const commitment = await poseidonCommit(value, salt);
   const { sig, issuerX, issuerY } = signCommitment(commitment);
-  const meta = TYPE_META[type];
   return {
     type,
-    title: meta.title,
-    claim: meta.claim,
+    title: TYPE_TITLE[type],
+    claim: buildClaimLabel(type, claimParams),
     issuer: issuerName,
     issuerId,
     holder,
@@ -221,9 +271,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Gate issuance on identity verification (mock-passes without an API key).
-  const passed = await verifyWithSmileID(attributes);
-  if (!passed) {
-    return NextResponse.json({ error: "Identity verification failed" }, { status: 403 });
+  const kyc = await verifyWithSmileID(attributes);
+  if (!kyc.ok) {
+    return NextResponse.json(
+      { error: "Identity verification failed", smileid: { code: kyc.code, text: kyc.text } },
+      { status: 403 },
+    );
   }
 
   try {
