@@ -25,10 +25,7 @@ const PROOF_TTL: u32 = 90 * DAY_IN_LEDGERS;
 /// never the verifier's exported wasm symbols.
 #[contractclient(name = "VerifierClient")]
 pub trait VerifierInterface {
-    fn verify_kyc_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
-    fn verify_age_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
-    fn verify_jurisdiction_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
-    fn verify_income_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool;
+    fn verify_proof(env: Env, credential_type: Symbol, proof: Bytes, public_inputs: Bytes) -> bool;
 }
 
 /// Typed client for the deployed IssuerRegistry contract.
@@ -50,6 +47,10 @@ const FIELD_BYTES: u32 = 32;
 pub struct ProofRecord {
     pub verified_at: u64,
     pub expiry: u64,
+    /// For parameterised credential types (age, income, funds), the threshold
+    /// value that was committed to in the proof's public inputs. None for types
+    /// with no numeric threshold (kyc, jurisdiction).
+    pub threshold: Option<u64>,
 }
 
 #[contracttype]
@@ -66,12 +67,11 @@ pub enum DataKey {
 pub enum Error {
     NotInitialized = 1,
     VerificationFailed = 2,
-    UnknownCredentialType = 3,
-    NotAuthorized = 4,
-    IssuerNotTrusted = 5,
+    NotAuthorized = 3,
+    IssuerNotTrusted = 4,
     /// The public key the proof was made against does not match the registered
     /// issuer's key.
-    IssuerKeyMismatch = 6,
+    IssuerKeyMismatch = 5,
 }
 
 #[contract]
@@ -115,17 +115,18 @@ impl ProofRegistry {
             panic_with_error!(&env, Error::IssuerKeyMismatch);
         }
 
-        // 3. The proof must verify against the registered VK.
+        // 3. The proof must verify against the registered VK for this type.
+        //    VerifierClient panics with VkNotSet if no VK is registered for the type.
         let verifier = VerifierClient::new(&env, &Self::verifier(&env));
-        let ok = Self::dispatch_verify(&env, &verifier, &credential_type, &proof, &public_inputs);
-        if !ok {
+        if !verifier.verify_proof(&credential_type, &proof, &public_inputs) {
             panic_with_error!(&env, Error::VerificationFailed);
         }
 
-        let key = DataKey::Proof(holder, credential_type);
+        let key = DataKey::Proof(holder, credential_type.clone());
         let record = ProofRecord {
             verified_at: env.ledger().timestamp(),
             expiry,
+            threshold: Self::extract_threshold(&credential_type, &public_inputs),
         };
         env.storage().persistent().set(&key, &record);
         env.storage()
@@ -149,6 +150,34 @@ impl ProofRegistry {
         }
     }
 
+    /// Like `is_verified` but also enforces a minimum threshold for parameterised
+    /// credential types (age, income, funds). A proof submitted with a threshold
+    /// of 200_000 satisfies `min_threshold = 50_000` because it proves strictly
+    /// more. For `kyc` and `jurisdiction`, pass `min_threshold = None`.
+    pub fn check_claim(
+        env: Env,
+        holder: Address,
+        credential_type: Symbol,
+        min_threshold: Option<u64>,
+    ) -> bool {
+        match env
+            .storage()
+            .persistent()
+            .get::<_, ProofRecord>(&DataKey::Proof(holder, credential_type))
+        {
+            Some(r) => {
+                if r.expiry <= env.ledger().timestamp() {
+                    return false;
+                }
+                match min_threshold {
+                    None => true,
+                    Some(min) => r.threshold.unwrap_or(0) >= min,
+                }
+            }
+            None => false,
+        }
+    }
+
     /// Revoke a cached proof. The holder authorizes their own revocation.
     pub fn revoke_proof(env: Env, holder: Address, credential_type: Symbol) {
         holder.require_auth();
@@ -165,24 +194,35 @@ impl ProofRegistry {
         Self::issuer_registry(&env)
     }
 
-    fn dispatch_verify(
-        env: &Env,
-        verifier: &VerifierClient,
-        credential_type: &Symbol,
-        proof: &Bytes,
-        public_inputs: &Bytes,
-    ) -> bool {
-        if *credential_type == symbol_short!("kyc") {
-            verifier.verify_kyc_proof(proof, public_inputs)
-        } else if *credential_type == symbol_short!("age") {
-            verifier.verify_age_proof(proof, public_inputs)
-        } else if *credential_type == Symbol::new(env, "jurisdiction") {
-            verifier.verify_jurisdiction_proof(proof, public_inputs)
-        } else if *credential_type == symbol_short!("income") {
-            verifier.verify_income_proof(proof, public_inputs)
+    /// Extract the numeric threshold from the proof's public inputs for
+    /// credential types that carry one. Public-input layout after the common
+    /// header (commitment field 0, issuer_x fields 1-32, issuer_y fields 33-64):
+    ///   age:        field 65 = current_date, field 66 = threshold_years
+    ///   income:     field 65 = threshold
+    ///   funds:      field 65 = threshold
+    ///   kyc:        (no extra fields)
+    fn extract_threshold(credential_type: &Symbol, public_inputs: &Bytes) -> Option<u64> {
+        if *credential_type == symbol_short!("age") {
+            // field 66, bytes 2112-2143, u64 in last 8 bytes
+            Some(Self::read_u64_field(public_inputs, 66))
+        } else if *credential_type == symbol_short!("income")
+            || *credential_type == symbol_short!("funds")
+        {
+            // field 65, bytes 2080-2111, u64 in last 8 bytes
+            Some(Self::read_u64_field(public_inputs, 65))
         } else {
-            panic_with_error!(env, Error::UnknownCredentialType)
+            None
         }
+    }
+
+    /// Read a big-endian u64 from the last 8 bytes of a 32-byte field element.
+    fn read_u64_field(public_inputs: &Bytes, field_index: u32) -> u64 {
+        let base = field_index * FIELD_BYTES;
+        let mut b = [0u8; 8];
+        for i in 0..8u32 {
+            b[i as usize] = public_inputs.get(base + 24 + i).unwrap_or(0);
+        }
+        u64::from_be_bytes(b)
     }
 
     /// True iff the secp256k1 public key embedded in `public_inputs` (fields

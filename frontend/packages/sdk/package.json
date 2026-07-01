@@ -1,0 +1,51 @@
+{
+  "name": "@stellarcred/sdk",
+  "version": "0.1.1",
+  "description": "Read-only client for StellarCred — check ZK credential proofs on Stellar from any protocol, frontend, or backend.",
+  "license": "MIT",
+  "author": "Samuel Dahunsi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Psalmuel01/StellarCred",
+    "directory": "frontend/packages/sdk"
+  },
+  "keywords": [
+    "stellar",
+    "soroban",
+    "zk",
+    "credentials",
+    "identity",
+    "web3"
+  ],
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "prepublishOnly": "pnpm build"
+  },
+  "peerDependencies": {
+    "@stellar/stellar-sdk": ">=13.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@stellar/stellar-sdk": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@stellar/stellar-sdk": "^13.3.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}

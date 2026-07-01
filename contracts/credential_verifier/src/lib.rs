@@ -1,11 +1,10 @@
 #![no_std]
 //! CredentialVerifier
 //!
-//! Stateless cryptographic gateway. One `verify_*` function per credential type;
-//! each looks up the verification key for its circuit and checks an UltraHonk
-//! proof against the supplied public inputs using the host-native BN254 verifier
-//! from `ultrahonk_soroban_verifier`. It stores no per-holder state and returns
-//! only a boolean.
+//! Stateless cryptographic gateway. A single `verify_proof` entry point accepts
+//! any credential type — it looks up the VK by Symbol from persistent storage
+//! and runs the UltraHonk verifier. Adding a new credential type requires only
+//! calling `set_vk` with the new circuit's VK; no contract changes or redeploy.
 //!
 //! Verification keys are set by an admin (one VK per credential circuit). Each VK
 //! is tied to a specific Noir circuit and must be produced with the same `bb`
@@ -13,7 +12,7 @@
 //! `proof` and `public_inputs` are the opaque byte blobs emitted by `bb`.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address,
     Bytes, Env, Symbol,
 };
 use ultrahonk_soroban_verifier::{UltraHonkVerifier, PROOF_BYTES};
@@ -63,23 +62,15 @@ impl CredentialVerifier {
             .extend_ttl(&key, VK_BUMP_THRESHOLD, VK_TTL);
     }
 
-    pub fn verify_kyc_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool {
-        Self::verify(&env, symbol_short!("kyc"), &proof, &public_inputs)
-    }
-
-    pub fn verify_age_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool {
-        Self::verify(&env, symbol_short!("age"), &proof, &public_inputs)
-    }
-
-    pub fn verify_jurisdiction_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool {
-        Self::verify(&env, Symbol::new(&env, "jurisdiction"), &proof, &public_inputs)
-    }
-
-    pub fn verify_income_proof(env: Env, proof: Bytes, public_inputs: Bytes) -> bool {
-        Self::verify(&env, symbol_short!("income"), &proof, &public_inputs)
-    }
-
-    fn verify(env: &Env, credential_type: Symbol, proof: &Bytes, public_inputs: &Bytes) -> bool {
+    /// Verify an UltraHonk proof for any registered credential type. Looks up
+    /// the VK by `credential_type` Symbol and returns true iff the proof is valid.
+    /// Panics with `VkNotSet` if no VK has been registered for this type.
+    pub fn verify_proof(
+        env: Env,
+        credential_type: Symbol,
+        proof: Bytes,
+        public_inputs: Bytes,
+    ) -> bool {
         // Proofs are fixed-length; reject early before touching the verifier.
         if proof.len() as usize != PROOF_BYTES {
             return false;
@@ -88,10 +79,10 @@ impl CredentialVerifier {
             .storage()
             .persistent()
             .get(&DataKey::Vk(credential_type))
-            .unwrap_or_else(|| panic_with_error!(env, Error::VkNotSet));
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VkNotSet));
 
-        match UltraHonkVerifier::new(env, &vk) {
-            Ok(verifier) => verifier.verify(env, proof, public_inputs).is_ok(),
+        match UltraHonkVerifier::new(&env, &vk) {
+            Ok(verifier) => verifier.verify(&env, &proof, &public_inputs).is_ok(),
             Err(_) => false,
         }
     }

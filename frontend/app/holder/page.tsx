@@ -74,10 +74,10 @@ function CredCard({
         <div style={{ minWidth: 0 }}>
           <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
             <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{c.title}</span>
-            <span className="mono faint" style={{ fontSize: "0.75rem" }}>{c.claim}</span>
+            <span className="mono faint" style={{ fontSize: "0.7rem" }}>{c.claim}</span>
           </div>
-          <div style={{ fontSize: "0.72rem", color: "var(--faint)", marginTop: "0.15rem" }}>
-            {c.issuer} · <span className="mono">{truncateHash(c.commitment)}</span>
+          <div style={{ fontSize: "0.75rem", color: "var(--faint)", marginTop: "0.15rem" }}>
+            {c.issuer} · <span>{truncateHash(c.commitment)}</span>
             {status === "proved" && (
               <>
                 {" · "}

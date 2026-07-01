@@ -1,128 +1,196 @@
 # StellarCred
 
-Prove credential attributes on Stellar without the credential data ever touching
-the chain. A user holds a credential issued by a trusted party (KYC provider,
-government, employer), generates a zero-knowledge proof locally, and protocols
-verify that proof on-chain — one verification, usable everywhere.
+**Privacy-preserving, reusable credentials for the Stellar ecosystem.**
 
-## Architecture
+A user holds a credential issued by a trusted party (KYC provider, bank,
+government, employer), generates a zero-knowledge proof locally in the browser,
+and submits it once on-chain. Any Stellar protocol can then check the result
+with a single read-only contract call — **verify once, trusted everywhere** —
+and the underlying credential data never touches the chain.
 
-```
-Issuer ──signs──> Credential (held by user, never on-chain)
-                       │
-                  Noir circuit (runs in browser, WASM)
-                       │  proof + public inputs
-                       ▼
-  ┌────────────────────────────────────────────────────────┐
-  │ Soroban contracts                                        │
-  │                                                          │
-  │  IssuerRegistry ── trust root: which issuers, which      │
-  │                    credential types                      │
-  │  CredentialVerifier ── stateless UltraHonk verify        │
-  │                    (one fn per credential type)          │
-  │  ProofRegistry ── caches "address X verified until T"    │
-  │  GatedPool ── demo: deposits gated on KYC proof          │
-  └────────────────────────────────────────────────────────┘
-```
+StellarCred is not a KYC app. It's the interoperability layer between issuers
+and protocols: issuers integrate once, protocols integrate once, and users carry
+reusable proofs instead of re-submitting personal data to every app.
 
-Data flow: `submit_proof` → ProofRegistry calls CredentialVerifier → if valid,
-caches the result. Protocols (GatedPool) then make one cheap `is_verified` call
-instead of re-running the verifier.
+---
 
-## Layout
+## Highlights
 
-```
-contracts/          Soroban workspace (Rust, soroban-sdk 26)
-  issuer_registry/      trust root; submit_proof checks is_valid_issuer
-  credential_verifier/  real UltraHonk verify via host-native BN254 (VK per type)
-  proof_registry/       caches verifications w/ expiry + TTL; gated on issuer
-  gated_pool/           demo DeFi pool gated on a KYC proof
-circuits/           Noir circuits (UltraHonk, Noir beta.9 / bb 0.87.0)
-  commit/               issuer helper: returns Poseidon2([value, salt], 2)
-  kyc_proof/            "I hold a credential the issuer committed to"
-  age_proof/            "I am over N" without revealing DOB
-  income_proof/         "my income exceeds T" without revealing it
-  jurisdiction_proof/   "my country is not in [list]" without revealing it
-  scripts/build.sh      compile + prove + stage circuit JSON for the frontend
-fixtures/<type>/    real vk/proof/public_inputs per type, used by contract tests
-frontend/           Next.js app — Issuer / Holder / Verifier screens
-scripts/deploy.sh   deploy + wire + register issuer + install all VKs on testnet
-```
-
-All four credential circuits share one commitment scheme,
-`commitment = Poseidon2([value, salt], 2)`, so the issuer derives commitments
-with a single `commit` helper and every type is issuable and provable.
-
-## Status
-
-The **ZK verification is real**, not stubbed. `CredentialVerifier` runs the
-host-native BN254 UltraHonk verifier from
-[`rs-soroban-ultrahonk`](https://github.com/yugocabrio/rs-soroban-ultrahonk),
-and the full path (GatedPool → ProofRegistry → IssuerRegistry + CredentialVerifier
-→ BN254) is covered by tests that verify **genuine proofs** for all four
-credential types.
-
-What works today:
-- All four contracts build to wasm on soroban-sdk 26; **21 contract tests pass**,
-  including real proof verification for `kyc`/`age`/`income`/`jurisdiction`, an
-  untrusted-issuer rejection, a wrong-issuer-key rejection, and a proof-expiry
-  test that advances ledger time.
+- **Real on-chain ZK verification.** `CredentialVerifier` runs the host-native
+  BN254 UltraHonk verifier ([`rs-soroban-ultrahonk`](https://github.com/yugocabrio/rs-soroban-ultrahonk)),
+  not a stub. The full path — protocol → ProofRegistry → IssuerRegistry +
+  CredentialVerifier → BN254 — is covered by **21 passing contract tests** over
+  genuine proofs for all four credential types.
 - **Issuer signature verified in zero-knowledge.** Each circuit verifies the
-  issuer's secp256k1 ECDSA signature over the commitment
-  (`std::ecdsa_secp256k1`), with the issuer public key as a public input.
-  `submit_proof` checks `IssuerRegistry.is_valid_issuer(issuer_id, type)` AND
-  binds the proof's public-input key to the issuer's registered key — so a proof
-  only passes if a registered issuer actually signed the credential. Persistent
-  writes extend their TTL.
-- `circuits/scripts/build.sh` builds every circuit, commits VK + proof fixtures,
-  and stages circuit JSON for the browser prover.
-- Real end-to-end product flow: the Issuer page generates a secret, computes the
-  Poseidon commitment via the `commit` circuit, signs it (secp256k1), and issues
-  a credential; the Holder page generates a real UltraHonk proof (`noir_js` +
-  `bb.js`) that verifies the signature in-circuit and submits it on-chain; the
-  Demo page reads `is_verified` for all gated types.
+  issuer's secp256k1 ECDSA signature over the credential commitment
+  (`std::ecdsa_secp256k1`) inside the proof, and the contract binds that key to
+  the registered issuer — a proof only passes if a *registered* issuer actually
+  signed the credential.
+- **`is_verified` / `check_claim` are the on-chain primitives.** `is_verified` checks binary claims (kyc, jurisdiction); `check_claim(holder, type, min_threshold)` enforces numeric thresholds (age, income, funds) — a proof for ≥200k satisfies a ≥50k gate. One read, no API, no data handling.
+- **Multi-claim issuance.** One verification issues every requested credential
+  (KYC, age, jurisdiction, …) in a single call.
+- **Drop-in integration.** The [`@stellarcred/sdk`](frontend/packages/sdk) gives
+  protocols `hasClaim`, `getClaims`, and `buildVerifyUrl`, plus a return-URL
+  redirect flow so users verify and bounce straight back.
 
-Still to wire:
-- **Deploy + click-through.** Everything builds, typechecks, and serves; a live
-  testnet deploy (`./scripts/deploy.sh`, CLI 27) + a first in-browser proof run is
-  the remaining validation.
+---
 
-## De-risking result (resolved)
+## How it works
 
-- **soroban-sdk** is now `26.0.1` — the verifier uses the host-native BN254 crypto
-  added in v26 (`soroban_sdk::crypto::bn254`), which is why on-chain verification
-  fits the resource budget (~0.014 XLM/verify on testnet per the reference repo).
-- **Toolchain is pinned**: Noir `1.0.0-beta.9`, Barretenberg `bb v0.87.0`, matching
-  the verifier crate. The VK is deterministic from the circuit; our `kyc_proof`
-  VK is byte-identical to the reference identity circuit's.
+```
+  Issuer  ──signs──▶  Credential  (held by the user, never on-chain)
+ (KYC provider,            │
+  bank, gov)               │  Noir circuit runs in the browser (WASM)
+                           │  → UltraHonk proof + public inputs
+                           ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │  Soroban contracts                                            │
+  │                                                               │
+  │   IssuerRegistry ──── trust root: which issuers, which types, │
+  │                       and their signing public keys           │
+  │   CredentialVerifier ─ stateless UltraHonk verify (VK / type) │
+  │   ProofRegistry ────── caches "address X verified until T",   │
+  │                       gated on the registered issuer key      │
+  │   GatedPool ────────── demo DeFi pool gated on a KYC proof    │
+  └──────────────────────────────────────────────────────────────┘
+                           ▲
+                           │  one read-only call: is_verified(wallet, claim)
+                   Any protocol / the @stellarcred/sdk
+```
 
-Notes:
+**Issue → Prove → Verify.** The issuer computes `commitment = Poseidon2([value,
+salt])` and signs it server-side. The holder generates a proof locally
+(`noir_js` + `bb.js`) that proves knowledge of the preimage *and* the issuer's
+signature, then calls `ProofRegistry.submit_proof`. The registry verifies the
+proof once and caches the result; every protocol afterwards reads
+`is_verified` instead of re-running the verifier.
+
+---
+
+## Repository layout
+
+```
+contracts/              Soroban workspace (Rust, soroban-sdk 26)
+  issuer_registry/        trust root; submit_proof checks is_valid_issuer
+  credential_verifier/    real UltraHonk verify via host-native BN254 (VK per type)
+  proof_registry/         caches verifications w/ expiry + TTL; gated on issuer key
+  gated_pool/             demo DeFi pool gated on a KYC proof
+circuits/               Noir circuits (UltraHonk · Noir 1.0.0-beta.9 / bb 0.87.0)
+  commit/                 issuer helper: returns Poseidon2([value, salt], 2)
+  kyc_proof/              "I hold a credential the issuer committed to"
+  age_proof/              "I am over N" without revealing date of birth
+  income_proof/           "my income exceeds T" without revealing it
+  jurisdiction_proof/     "my country is not restricted" without revealing it
+  funds_proof/            "my balance exceeds T" without revealing it
+  scripts/build.sh        compile + prove + stage circuit JSON for the frontend
+fixtures/<type>/        real vk / proof / public_inputs per type (contract tests)
+frontend/               Next.js 14 app (App Router)
+  app/                    landing, holder, verify, issuer, apps, developers, docs
+  app/api/issue/          server-side credential issuance (signs with ISSUER_PRIVATE_KEY)
+  packages/sdk/           @stellarcred/sdk — hasClaim / getClaims / buildVerifyUrl
+  lib/                    proof.ts (noir_js + bb.js), contracts.ts (stellar-sdk), wallet
+scripts/deploy.sh       deploy + wire + register issuer + install all VKs on testnet
+```
+
+All five credential circuits share one commitment scheme,
+`commitment = Poseidon2([value, salt], 2)`, so the issuer derives every
+commitment with a single `commit` helper and each type is independently issuable
+and provable.
+
+---
+
+## Integrating a protocol
+
+Protocols never handle credential data — they ask the on-chain registry one
+question: *has this wallet proven the claim I require?*
+
+```ts
+import { StellarCred } from "@stellarcred/sdk";
+
+// Binary claim — KYC, jurisdiction
+const canDeposit = await StellarCred.hasClaim(wallet, "kyc");
+
+// Threshold claim — enforce minimum on-chain
+const canAccessVault = await StellarCred.hasClaim(wallet, "funds", { minThreshold: 50000 });
+const canTrade = await StellarCred.hasClaim(wallet, "age", { minThreshold: 21 });
+```
+
+If the user hasn't verified yet, send them to StellarCred and get them back
+automatically:
+
+```ts
+const verifyUrl = StellarCred.buildVerifyUrl({
+  returnUrl: "https://yourapp.xyz/deposit",
+  claim: "kyc",
+});
+window.location.href = verifyUrl;
+// StellarCred returns the user to returnUrl with ?sc_verified=true&sc_wallet=…
+```
+
+Two entry points, one backend:
+
+- **User-first** — a user verifies at StellarCred before ever visiting your app;
+  their credentials work everywhere immediately.
+- **Protocol-first** — your app shows a "Verify" button, the user verifies, and
+  returns automatically.
+
+Prefer Soroban directly? Read `ProofRegistry.is_verified` from your own contract;
+no SDK required. See [`/developers`](frontend/app/developers/page.tsx) for the
+full reference.
+
+---
+
+## Credential types
+
+| Claim          | Proves                       | Private input kept hidden |
+| -------------- | ---------------------------- | ------------------------- |
+| `kyc`          | Identity verified            | The credential secret     |
+| `age`          | Age ≥ threshold              | Date of birth             |
+| `income`       | Income ≥ threshold           | Actual income             |
+| `jurisdiction` | Country not restricted       | Country code              |
+| `funds`        | Balance ≥ threshold          | Exact balance (from Plaid)|
+
+---
+
+## Security model
+
 1. **Issuer ↔ commitment binding is cryptographic.** The issuer signs the
-   commitment with secp256k1; the circuit verifies that signature in-circuit
+   commitment with secp256k1; each circuit verifies that signature in-circuit
    (`std::ecdsa_secp256k1`) against the issuer public key (a public input), and
    `ProofRegistry` checks that public-input key equals the issuer's registered
-   key. So a proof is only accepted if a registered issuer actually signed the
-   credential. (The demo issuer key lives client-side for convenience in
-   `lib/issuer-sign.ts` / `circuits/scripts/sign.js`; a production issuer signs
-   server-side and never ships its secret key.)
-2. **Proof expiry storage.** ProofRegistry uses `persistent` storage with an
-   explicit `expiry` field (checked against ledger time) plus TTL extension;
-   `temporary` storage (ledger-enforced auto-TTL) is an alternative.
+   key. A proof is accepted only if a registered, trusted issuer actually signed
+   the credential.
+   - `prehash: false` is required when signing — Noir uses the raw 32-byte
+     commitment as the message digest directly.
+2. **The signing key is server-side only.** Issuance runs in the
+   [`/api/issue`](frontend/app/api/issue/route.ts) route handler and signs with
+   `ISSUER_PRIVATE_KEY` (never prefixed `NEXT_PUBLIC_`, never shipped to the
+   browser). A production issuer would hold this key in an HSM or secrets
+   manager. With no key set, the route runs a clearly-logged demo fallback.
+3. **Attestation relay.** Issuance can be gated on a real KYC provider — the
+   route integrates SmileID's sandbox and only signs credentials after a positive
+   result. Identity fields are sent once to the provider and never stored.
+4. **Proof expiry.** `ProofRegistry` uses persistent storage with an explicit
+   `expiry` (checked against ledger time) plus TTL extension.
+
+---
 
 ## Prerequisites
 
-- Rust (nightly ok) + `wasm32v1-none` target: `rustup target add wasm32v1-none`
-- Stellar CLI **v26+** to deploy (BN254 protocol); 23+ builds wasm fine
-- Noir `nargo` **1.0.0-beta.9** (`noirup -v 1.0.0-beta.9`) + Barretenberg
-  **bb v0.87.0** (`bbup -v 0.87.0`) — versions must match or the VK won't validate
+- Rust (nightly ok) + the `wasm32v1-none` target: `rustup target add wasm32v1-none`
+- Stellar CLI **v26+** to deploy (BN254 protocol); verified on 27.0.0
+- Noir `nargo` **1.0.0-beta.9** (`noirup -v 1.0.0-beta.9`) and Barretenberg
+  **bb v0.87.0** (`bbup -v 0.87.0`) — the versions must match or the VK won't validate
 - Node 20+ and pnpm
+
+---
 
 ## Build & test
 
 ```bash
-# Contracts (real proof verification in tests)
-cargo test                 # 15 tests, incl. genuine BN254 verification
-stellar contract build     # wasm artifacts -> target/wasm32v1-none/release
+# Contracts — real proof verification in tests
+cargo test                 # 21 tests, incl. genuine BN254 verification
+stellar contract build     # wasm artifacts → target/wasm32v1-none/release
 
 # Circuits — compile, prove, and stage circuit JSON for the frontend
 ./circuits/scripts/build.sh                 # all circuits
@@ -132,12 +200,14 @@ stellar contract build     # wasm artifacts -> target/wasm32v1-none/release
 cd frontend && pnpm install && pnpm dev
 ```
 
+---
+
 ## Run it end to end (testnet)
 
 One-time toolchain (macOS):
 
 ```bash
-brew install stellar-cli            # need v26+; this repo verified on 27.0.0
+brew install stellar-cli            # need v26+; verified on 27.0.0
 rustup target add wasm32v1-none
 curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
 noirup -v 1.0.0-beta.9              # nargo
@@ -145,17 +215,21 @@ curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/refs/head
 bbup -v 0.87.0                      # bb
 ```
 
-Deploy + wire the contracts, then point the frontend at them:
+Deploy and wire the contracts, then point the frontend at them:
 
 ```bash
 # 1. Create and fund a deployer identity (friendbot)
 stellar keys generate --global deployer --network testnet --fund
 
-# 2. Build, deploy all 4 contracts, wire them, and register the 3 VKs
-SOURCE=deployer ./scripts/deploy.sh
+# 2. Build, deploy all 4 contracts, wire them, and register the VKs.
+#    Set ISSUER_PRIVATE_KEY so the registered issuer key matches the one the
+#    app signs with (a 64-char hex secp256k1 key).
+ISSUER_PRIVATE_KEY=<hex> SOURCE=deployer ./scripts/deploy.sh
 
-# 3. Copy the printed NEXT_PUBLIC_* contract ids into frontend/.env.local
-cp frontend/.env.example frontend/.env.local   # then paste the ids
+# 3. Configure the frontend
+cp frontend/.env.example frontend/.env.local
+#    Paste the printed NEXT_PUBLIC_* contract ids, set NEXT_PUBLIC_ISSUER_ADDRESS,
+#    and set ISSUER_PRIVATE_KEY (server-only). SmileID vars are optional.
 
 # 4. (optional) regenerate circuit artifacts + VKs
 ./circuits/scripts/build.sh
@@ -164,22 +238,42 @@ cp frontend/.env.example frontend/.env.local   # then paste the ids
 cd frontend && pnpm install && pnpm dev
 ```
 
-In the browser: install **Freighter**, switch it to **testnet**, and fund that
-account (https://lab.stellar.org or friendbot). On **Holder**, connect the
-wallet → "Generate proof" (proves locally, ~seconds) → "Submit to Stellar"
-(signs + submits). On **Demo**, connect the same wallet to see *access denied →
-granted*. The deployer and the in-wallet holder can be the same funded account.
+In the browser: install **Freighter**, switch it to **testnet**, and fund the
+account (https://lab.stellar.org or friendbot).
 
-Notes:
-- The demo KYC credential carries the preimage that matches the deployed `kyc`
-  VK, so its proof verifies. Real issuance (issuer computes the commitment and
-  signs) is the next step — see Status.
-- In-browser proving uses cross-origin isolation (COOP/COEP headers in
-  `next.config.mjs`) for multithreading; it falls back to single-threaded.
+- **Verify** — pick one or more claims; the app issues the credentials to your
+  wallet (saved locally, never server-side).
+- **Holder** — connect the wallet → "Generate proof" (proves locally, ~seconds)
+  → submit to Stellar (signs + submits).
+- **Apps** — three demo protocols (LendFi, FundVault, AgeGate) each gated on a
+  different claim type; watch *access denied → granted* as `is_verified` flips.
+
+**Rotating the issuer key** doesn't require a redeploy — generate a new key and
+call `register_issuer` on the existing IssuerRegistry with the new public key.
+
+> In-browser proving uses cross-origin isolation (COOP/COEP headers in
+> `next.config.mjs`) for multithreading, falling back to single-threaded.
+
+---
+
+## Status
+
+- **ZK verification is real**, on soroban-sdk 26 with host-native BN254
+  (`soroban_sdk::crypto::bn254`) — on-chain verification fits the resource budget
+  (~0.014 XLM/verify on testnet per the reference repo).
+- **21 contract tests pass**, including real proof verification for all credential
+  types, in-circuit ECDSA, untrusted-issuer and wrong-issuer-key rejections, and
+  a proof-expiry test that advances ledger time.
+- **Toolchain is pinned**: Noir `1.0.0-beta.9`, Barretenberg `bb 0.87.0`, matching
+  the verifier crate; the VK is deterministic from the circuit.
+- Server-side issuance, multi-claim flow, the return-URL redirect, the
+  `@stellarcred/sdk`, and the SmileID relay are wired and build-clean.
+
+---
 
 ## References
 
-- ZK on Stellar: https://developers.stellar.org/docs/build/apps/zk
-- UltraHonk verifier: https://github.com/yugocabrio/rs-soroban-ultrahonk
-- Noir: https://noir-lang.org/docs
-- Stellar Wallets Kit: https://stellarwalletskit.dev
+- ZK on Stellar — https://developers.stellar.org/docs/build/apps/zk
+- UltraHonk Soroban verifier — https://github.com/yugocabrio/rs-soroban-ultrahonk
+- Noir — https://noir-lang.org/docs
+- Stellar Wallets Kit — https://stellarwalletskit.dev

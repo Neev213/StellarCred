@@ -15,15 +15,28 @@ const VK: &[u8] = include_bytes!("../../../fixtures/kyc/vk");
 const PROOF: &[u8] = include_bytes!("../../../fixtures/kyc/proof");
 const PUBLIC_INPUTS: &[u8] = include_bytes!("../../../fixtures/kyc/public_inputs");
 
-// The issuer secp256k1 key (x || y) the fixtures were signed with, read straight
-// out of the proof's public inputs (fields 1..65, low byte of each 32-byte
-// field) so the registered key always matches what the proof attests to.
-fn demo_pubkey(env: &Env) -> BytesN<64> {
+// funds_proof fixture: proves balance >= 200_000 (threshold stored in public inputs).
+const FUNDS_VK: &[u8] = include_bytes!("../../../fixtures/funds/vk");
+const FUNDS_PROOF: &[u8] = include_bytes!("../../../fixtures/funds/proof");
+const FUNDS_PUBLIC_INPUTS: &[u8] = include_bytes!("../../../fixtures/funds/public_inputs");
+
+// age_proof fixture: proves age >= 18 years (threshold_years in public inputs).
+const AGE_VK: &[u8] = include_bytes!("../../../fixtures/age/vk");
+const AGE_PROOF: &[u8] = include_bytes!("../../../fixtures/age/proof");
+const AGE_PUBLIC_INPUTS: &[u8] = include_bytes!("../../../fixtures/age/public_inputs");
+
+// Extract the issuer secp256k1 key (x || y) from any fixture's public inputs
+// (fields 1..65, low byte of each 32-byte field).
+fn pubkey_from(env: &Env, public_inputs: &[u8]) -> BytesN<64> {
     let mut arr = [0u8; 64];
     for i in 0..64usize {
-        arr[i] = PUBLIC_INPUTS[(1 + i) * 32 + 31];
+        arr[i] = public_inputs[(1 + i) * 32 + 31];
     }
     BytesN::from_array(env, &arr)
+}
+
+fn demo_pubkey(env: &Env) -> BytesN<64> {
+    pubkey_from(env, PUBLIC_INPUTS)
 }
 
 struct Harness {
@@ -190,4 +203,98 @@ fn revoke_clears_proof() {
     submit(&env, &h, &holder, 1000);
     h.registry.revoke_proof(&holder, &symbol_short!("kyc"));
     assert!(!h.registry.is_verified(&holder, &symbol_short!("kyc")).0);
+}
+
+// ── check_claim / threshold tests ────────────────────────────────────────────
+
+#[test]
+fn check_claim_no_threshold_matches_is_verified() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let h = deploy(&env);
+    let holder = Address::generate(&env);
+
+    submit(&env, &h, &holder, 1000);
+    // check_claim with no min_threshold should behave like is_verified.
+    assert!(h.registry.check_claim(&holder, &symbol_short!("kyc"), &None));
+}
+
+#[test]
+fn funds_threshold_stored_and_checked() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+
+    // Wire up a fresh harness for the funds credential type.
+    let ir_id = env.register(IssuerRegistry, (admin.clone(),));
+    let ir = IssuerRegistryClient::new(&env, &ir_id);
+    let issuer = Address::generate(&env);
+    ir.register_issuer(
+        &issuer,
+        &pubkey_from(&env, FUNDS_PUBLIC_INPUTS),
+        &vec![&env, symbol_short!("funds")],
+    );
+    let v_id = env.register(CredentialVerifier, (admin,));
+    CredentialVerifierClient::new(&env, &v_id)
+        .set_vk(&symbol_short!("funds"), &Bytes::from_slice(&env, FUNDS_VK));
+    let pr_id = env.register(ProofRegistry, (v_id, ir_id));
+    let registry = ProofRegistryClient::new(&env, &pr_id);
+    let holder = Address::generate(&env);
+
+    // funds fixture proves balance >= 200_000.
+    registry.submit_proof(
+        &holder,
+        &issuer,
+        &symbol_short!("funds"),
+        &Bytes::from_slice(&env, FUNDS_PROOF),
+        &Bytes::from_slice(&env, FUNDS_PUBLIC_INPUTS),
+        &9999,
+    );
+
+    // A protocol requiring <= the proved threshold passes.
+    assert!(registry.check_claim(&holder, &symbol_short!("funds"), &Some(200_000)));
+    assert!(registry.check_claim(&holder, &symbol_short!("funds"), &Some(50_000)));
+    assert!(registry.check_claim(&holder, &symbol_short!("funds"), &None));
+
+    // A protocol requiring MORE than was proved fails.
+    assert!(!registry.check_claim(&holder, &symbol_short!("funds"), &Some(250_000)));
+}
+
+#[test]
+fn age_threshold_stored_and_checked() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+
+    let ir_id = env.register(IssuerRegistry, (admin.clone(),));
+    let ir = IssuerRegistryClient::new(&env, &ir_id);
+    let issuer = Address::generate(&env);
+    ir.register_issuer(
+        &issuer,
+        &pubkey_from(&env, AGE_PUBLIC_INPUTS),
+        &vec![&env, symbol_short!("age")],
+    );
+    let v_id = env.register(CredentialVerifier, (admin,));
+    CredentialVerifierClient::new(&env, &v_id)
+        .set_vk(&symbol_short!("age"), &Bytes::from_slice(&env, AGE_VK));
+    let pr_id = env.register(ProofRegistry, (v_id, ir_id));
+    let registry = ProofRegistryClient::new(&env, &pr_id);
+    let holder = Address::generate(&env);
+
+    // age fixture proves age >= 18.
+    registry.submit_proof(
+        &holder,
+        &issuer,
+        &symbol_short!("age"),
+        &Bytes::from_slice(&env, AGE_PROOF),
+        &Bytes::from_slice(&env, AGE_PUBLIC_INPUTS),
+        &9999,
+    );
+
+    // Protocols requiring <= 18 pass.
+    assert!(registry.check_claim(&holder, &symbol_short!("age"), &Some(18)));
+    assert!(registry.check_claim(&holder, &symbol_short!("age"), &Some(16)));
+
+    // A protocol requiring age >= 21 fails — the proof only covers >= 18.
+    assert!(!registry.check_claim(&holder, &symbol_short!("age"), &Some(21)));
 }

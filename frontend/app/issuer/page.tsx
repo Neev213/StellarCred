@@ -25,6 +25,7 @@ const DEFAULT_ATTR: Record<CredentialType, string> = {
   age: "1995-06-15",
   income: "250000",
   jurisdiction: "566",
+  funds: "50000",
 };
 
 const COUNTRIES = [
@@ -60,13 +61,28 @@ export default function IssuerPage() {
     setError("");
     setCopied(false);
     try {
+      // Map this page's single attribute onto the shared attributes shape, then
+      // request one credential type wrapped in an array (multi-claim API).
+      const attributes: Record<string, string> = {};
+      if (type === "age") attributes.date_of_birth = attribute;
+      else if (type === "income") attributes.income = attribute;
+      else if (type === "jurisdiction") attributes.country_code = attribute;
+
       const res = await fetch("/api/issue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, holder, issuerId, issuerName: "StellarCred Authority", expiry, attribute }),
+        body: JSON.stringify({
+          credential_types: [type],
+          holder,
+          issuerId,
+          issuerName: "StellarCred Authority",
+          expiry,
+          attributes,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const cred = (await res.json()) as Credential;
+      const { credentials } = (await res.json()) as { credentials: Credential[] };
+      const cred = credentials[0];
       saveCredential(cred);
       setIssued(JSON.stringify(cred, null, 2));
     } catch (e) {
@@ -83,12 +99,30 @@ export default function IssuerPage() {
 
   return (
     <>
-      <div className="between" style={{ marginBottom: "2.5rem" }}>
+      <div className="between" style={{ marginBottom: "2rem" }}>
         <div>
-          <span className="eyebrow">Issuer</span>
+          <span className="eyebrow">Issuer admin · demo</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Issue a credential</h1>
         </div>
         <WalletButton />
+      </div>
+
+      <div
+        style={{
+          marginBottom: "1.75rem",
+          padding: "0.75rem 1rem",
+          borderRadius: "var(--radius)",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid var(--border)",
+          fontSize: "0.8125rem",
+          color: "var(--muted)",
+          lineHeight: 1.6,
+        }}
+      >
+        <strong style={{ color: "var(--text)" }}>Simulates the issuer's side.</strong>{" "}
+        In production this would be a separate authenticated app run by the institution —
+        KYC provider, bank, employer — after verifying the holder off-chain. The holder
+        would never see this interface.
       </div>
 
       <div className="grid grid-2" style={{ alignItems: "start", gap: "1.5rem" }}>

@@ -31,10 +31,9 @@ async function getServer() {
 const PROOF_REGISTRY_ERRORS: Record<number, string> = {
   1: "Contracts not initialised — check that all contract IDs are set in the environment.",
   2: "Proof verification failed — the ZK proof is invalid or was generated against the wrong circuit VK.",
-  3: "Unknown credential type.",
-  4: "Not authorised — wallet signature missing or wrong account.",
-  5: "Issuer not trusted — the issuer address isn't registered for this credential type.",
-  6: "Issuer key mismatch — this credential was signed with a key that doesn't match what's registered on-chain. Re-issue the credential and try again.",
+  3: "Not authorised — wallet signature missing or wrong account.",
+  4: "Issuer not trusted — the issuer address isn't registered for this credential type.",
+  5: "Issuer key mismatch — this credential was signed with a key that doesn't match what's registered on-chain. Re-issue the credential and try again.",
 };
 
 export interface ContractError {
@@ -161,6 +160,46 @@ export async function submitProof(params: {
     throw new Error(`Transaction ${sent.hash} did not succeed (${result.status}).`);
   }
   return sent.hash;
+}
+
+/**
+ * Like isVerified but also enforces a minimum threshold for parameterised
+ * credential types (age, income, funds). Calls ProofRegistry.check_claim which
+ * stores the proved threshold and checks stored >= minThreshold server-side.
+ * For kyc / jurisdiction pass minThreshold = undefined.
+ */
+export async function checkClaim(
+  holder: string,
+  credentialType: string,
+  minThreshold?: number,
+): Promise<boolean> {
+  if (!CONTRACTS.proofRegistry) return false;
+
+  const { rpc, Contract, TransactionBuilder, Address, nativeToScVal, scValToNative, BASE_FEE } =
+    await sdk();
+  const srv = await getServer();
+
+  const account = await srv.getAccount(holder);
+  const contract = new Contract(CONTRACTS.proofRegistry);
+  const op = contract.call(
+    "check_claim",
+    Address.fromString(holder).toScVal(),
+    nativeToScVal(credentialType, { type: "symbol" }),
+    minThreshold !== undefined
+      ? nativeToScVal(BigInt(minThreshold), { type: "u64" })
+      : nativeToScVal(null, { type: "void" }),
+  );
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(op)
+    .setTimeout(30)
+    .build();
+
+  const sim = await srv.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim) || !sim.result) return false;
+  return scValToNative(sim.result.retval) as boolean;
 }
 
 /** Read-only check of whether `holder` has a currently-valid proof of `type`. */

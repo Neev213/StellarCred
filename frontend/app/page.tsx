@@ -5,8 +5,35 @@ import {
   IconFingerprint,
   IconCloudUpload,
   IconBolt,
+  IconCode,
+  IconUserCheck,
+  IconRouteSquare,
 } from "@tabler/icons-react";
 import { CredentialCard } from "@/components/CredentialCard";
+
+const ECOSYSTEM = ["LendFi", "StellarSwap", "PayrollX", "RWA Market", "TreasuryHub"];
+
+function CodeBlock({ children }: { children: string }) {
+  return (
+    <pre
+      style={{
+        fontFamily: "var(--font-mono), monospace",
+        fontSize: "0.8rem",
+        background: "var(--bg-raised)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        padding: "1rem 1.25rem",
+        overflowX: "auto",
+        lineHeight: 1.7,
+        color: "var(--muted)",
+        margin: 0,
+        whiteSpace: "pre",
+      }}
+    >
+      <code style={{ color: "var(--text)" }}>{children}</code>
+    </pre>
+  );
+}
 
 const STEPS = [
   {
@@ -161,6 +188,163 @@ export default function Home() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* ── Verified once. Trusted everywhere. ───────────────────────── */}
+      <section style={{ marginTop: "8rem" }}>
+        <div style={{ marginBottom: "2rem" }}>
+          <p className="eyebrow" style={{ marginBottom: "0.75rem" }}>Infrastructure</p>
+          <h2>Verified once. Trusted everywhere.</h2>
+          <p className="lead" style={{ fontSize: "1rem", marginTop: "0.5rem" }}>
+            Any protocol on Stellar can verify your credentials in one contract
+            call. No API. No backend. No re-verification.
+          </p>
+        </div>
+
+        <CodeBlock>{`// Any Stellar protocol
+import { StellarCred } from "@stellarcred/sdk";
+
+const canDeposit = await StellarCred.hasClaim(wallet, "kyc");`}</CodeBlock>
+
+        <div
+          className="row"
+          style={{ gap: "0.6rem", flexWrap: "wrap", marginTop: "1.75rem" }}
+        >
+          {ECOSYSTEM.map((name) => (
+            <span
+              key={name}
+              style={{
+                padding: "0.45rem 0.9rem",
+                borderRadius: "999px",
+                border: "1px solid var(--border)",
+                background: "rgba(255,255,255,0.02)",
+                fontSize: "0.8125rem",
+                color: "var(--muted)",
+              }}
+            >
+              {name}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Two ways to get verified ─────────────────────────────────── */}
+      <section style={{ marginTop: "8rem" }}>
+        <div style={{ marginBottom: "2.5rem" }}>
+          <p className="eyebrow" style={{ marginBottom: "0.75rem" }}>Flows</p>
+          <h2>Two ways to get verified</h2>
+        </div>
+
+        <div className="grid grid-2" style={{ gap: "1.25rem" }}>
+          {/* Verify directly */}
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                background: "rgba(62,207,142,0.08)",
+                border: "1px solid rgba(62,207,142,0.18)",
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              <IconUserCheck size={20} stroke={1.5} color="var(--accent)" />
+            </div>
+            <div>
+              <h3 style={{ marginBottom: "0.5rem" }}>Verify directly</h3>
+              <p className="muted" style={{ fontSize: "0.9rem", lineHeight: 1.65 }}>
+                Visit StellarCred before using any app. Your credentials work
+                everywhere, instantly.
+              </p>
+            </div>
+            <Link href="/verify" className="btn btn-primary btn-sm" style={{ alignSelf: "flex-start" }}>
+              Get verified
+              <IconArrowRight size={14} />
+            </Link>
+          </div>
+
+          {/* Verify through an app */}
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                background: "rgba(62,207,142,0.08)",
+                border: "1px solid rgba(62,207,142,0.18)",
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              <IconRouteSquare size={20} stroke={1.5} color="var(--accent)" />
+            </div>
+            <div>
+              <h3 style={{ marginBottom: "0.5rem" }}>Verify through an app</h3>
+              <p className="muted" style={{ fontSize: "0.9rem", lineHeight: 1.65 }}>
+                Apps that integrate StellarCred show a &ldquo;Verify&rdquo; button.
+                Complete verification and return automatically.
+              </p>
+            </div>
+            <div
+              className="row mono"
+              style={{
+                gap: "0.5rem",
+                fontSize: "0.8rem",
+                color: "var(--muted)",
+                flexWrap: "wrap",
+              }}
+            >
+              <span>LendFi</span>
+              <IconArrowRight size={13} color="var(--faint)" />
+              <span style={{ color: "var(--accent)" }}>StellarCred</span>
+              <IconArrowRight size={13} color="var(--faint)" />
+              <span>LendFi</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Built for developers ─────────────────────────────────────── */}
+      <section style={{ marginTop: "8rem" }}>
+        <div style={{ marginBottom: "2.5rem" }}>
+          <p className="eyebrow row" style={{ marginBottom: "0.75rem", gap: "0.4rem" }}>
+            <IconCode size={13} stroke={2} /> Developers
+          </p>
+          <h2>Built for developers</h2>
+        </div>
+
+        <div className="grid grid-3" style={{ gap: "1.25rem" }}>
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+            <p className="feature-num">01</p>
+            <h3 style={{ fontSize: "1rem" }}>Require a claim</h3>
+            <CodeBlock>{`stellarcred.hasClaim(
+  wallet, 'kyc'
+)`}</CodeBlock>
+          </div>
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+            <p className="feature-num">02</p>
+            <h3 style={{ fontSize: "1rem" }}>Redirect if needed</h3>
+            <CodeBlock>{`StellarCred.buildVerifyUrl({
+  returnUrl,
+  claim: 'kyc'
+})`}</CodeBlock>
+          </div>
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+            <p className="feature-num">03</p>
+            <h3 style={{ fontSize: "1rem" }}>User returns verified</h3>
+            <p className="muted" style={{ fontSize: "0.875rem", lineHeight: 1.65 }}>
+              On-chain proof, read in one call. No backend needed.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "1.75rem" }}>
+          <Link href="/developers" className="btn btn-secondary btn-sm">
+            Read the developer docs
+            <IconArrowRight size={14} />
+          </Link>
         </div>
       </section>
 
