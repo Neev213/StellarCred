@@ -168,7 +168,7 @@ full reference.
    browser). A production issuer would hold this key in an HSM or secrets
    manager. With no key set, the route runs a clearly-logged demo fallback.
 3. **Attestation relay.** Issuance can be gated on a real KYC provider — the
-   route integrates SmileID's sandbox and only signs credentials after a positive
+   route integrates Persona's sandbox and only signs credentials after a positive
    result. Identity fields are sent once to the provider and never stored.
 4. **Proof expiry.** `ProofRegistry` uses persistent storage with an explicit
    `expiry` (checked against ledger time) plus TTL extension.
@@ -229,7 +229,7 @@ ISSUER_PRIVATE_KEY=<hex> SOURCE=deployer ./scripts/deploy.sh
 # 3. Configure the frontend
 cp frontend/.env.example frontend/.env.local
 #    Paste the printed NEXT_PUBLIC_* contract ids, set NEXT_PUBLIC_ISSUER_ADDRESS,
-#    and set ISSUER_PRIVATE_KEY (server-only). SmileID vars are optional.
+#    and set ISSUER_PRIVATE_KEY (server-only). Persona vars are optional.
 
 # 4. (optional) regenerate circuit artifacts + VKs
 ./circuits/scripts/build.sh
@@ -267,7 +267,7 @@ call `register_issuer` on the existing IssuerRegistry with the new public key.
 - **Toolchain is pinned**: Noir `1.0.0-beta.9`, Barretenberg `bb 0.87.0`, matching
   the verifier crate; the VK is deterministic from the circuit.
 - Server-side issuance, multi-claim flow, the return-URL redirect, the
-  `@stellarcred/sdk`, and the SmileID relay are wired and build-clean.
+  `@stellarcred/sdk`, and the Persona relay are wired and build-clean.
 
 ---
 

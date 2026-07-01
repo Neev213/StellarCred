@@ -41,6 +41,7 @@ function VerifyInner() {
   // locks the selector — the user can't pick something the protocol didn't ask
   // for.
   const returnUrl = searchParams.get("return_url");
+  const personaInquiryId = searchParams.get("inquiry-id");
   const claimParam = searchParams.get("claim") as CredentialType | null;
   const requiredClaim = claimParam && VALID_CLAIMS.includes(claimParam) ? claimParam : null;
   const locked = !!requiredClaim;
@@ -53,9 +54,8 @@ function VerifyInner() {
     restricted: searchParams.get("restricted")?.split(",").filter(Boolean) ?? undefined,
   };
 
-  // Multi-select: one verification can issue several credentials at once.
-  const [selected, setSelected] = useState<CredentialType[]>(
-    requiredClaim ? [requiredClaim] : [],
+  const [selected, setSelected] = useState<CredentialType | null>(
+    requiredClaim ?? (TYPES[0]?.[0] ?? null),
   );
   const [attributes, setAttributes] = useState<Record<string, string>>({
     date_of_birth: "1995-06-15",
@@ -70,7 +70,7 @@ function VerifyInner() {
   const [plaidAccounts, setPlaidAccounts] = useState<{ name: string; available: number }[]>([]);
   const [plaidMock, setPlaidMock] = useState(false);
 
-  const fundsSelected = selected.includes("funds");
+  const fundsSelected = selected === "funds";
   useEffect(() => {
     if (!fundsSelected) return;
     setPlaidBalance(null);
@@ -86,13 +86,42 @@ function VerifyInner() {
       .catch(() => {});
   }, [fundsSelected]);
 
+  // When Persona redirects back to /verify?inquiry-id=XXX, resume the pending
+  // issue request that was stored in sessionStorage before the redirect.
+  useEffect(() => {
+    if (!personaInquiryId || !address) return;
+    const raw = sessionStorage.getItem("sc_persona_pending");
+    if (!raw) return;
+    sessionStorage.removeItem("sc_persona_pending");
+    let pending: Record<string, unknown>;
+    try { pending = JSON.parse(raw); } catch { return; }
+    setBusy(true);
+    setError("");
+    fetch("/api/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...pending, persona_inquiry_id: personaInquiryId }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const d = await res.json().catch(() => null) as { error?: string } | null;
+          throw new Error(d?.error ?? "Issuing failed after identity verification");
+        }
+        return res.json() as Promise<{ credentials: import("@/lib/credential").Credential[] }>;
+      })
+      .then(({ credentials }) => {
+        credentials.forEach((c) => saveCredential(c));
+
+        setDone(true);
+        setTimeout(redirectAfterIssue, 1500);
+      })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setBusy(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personaInquiryId, address]);
+
   function setAttr(key: string, val: string) {
     setAttributes((a) => ({ ...a, [key]: val }));
-  }
-
-  function toggle(t: CredentialType) {
-    if (locked) return; // protocol-required claim — selection is fixed
-    setSelected((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
   }
 
   // Where the user is sent after a successful issue.
@@ -130,34 +159,36 @@ function VerifyInner() {
   }
 
   async function onRequest() {
-    if (!address || selected.length === 0) return;
+    if (!address || !selected) return;
     setBusy(true);
     setError("");
     try {
       if (!DEMO_ISSUER_ID) {
         throw new Error("NEXT_PUBLIC_ISSUER_ADDRESS is not set — cannot issue credentials");
       }
+      const payload = {
+        credential_types: [selected],
+        holder: address,
+        issuerId: DEMO_ISSUER_ID,
+        issuerName: "StellarCred Authority",
+        expiry,
+        attributes,
+        claimParams: claimParamsFromUrl,
+      };
       const res = await fetch("/api/issue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          credential_types: selected,
-          holder: address,
-          issuerId: DEMO_ISSUER_ID,
-          issuerName: "StellarCred Authority",
-          expiry,
-          attributes,
-          claimParams: claimParamsFromUrl,
-        }),
+        body: JSON.stringify(payload),
       });
+      // 202 means Persona identity verification is required — redirect user.
+      if (res.status === 202) {
+        const { personaUrl } = (await res.json()) as { personaUrl: string };
+        sessionStorage.setItem("sc_persona_pending", JSON.stringify(payload));
+        window.location.href = personaUrl;
+        return; // don't clear busy — page is navigating away
+      }
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as {
-          error?: string;
-          smileid?: { code: string; text: string };
-        } | null;
-        if (data?.smileid) {
-          console.error("[SmileID]", data.smileid.code, data.smileid.text);
-        }
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(data?.error ?? "Issuing failed");
       }
       const { credentials } = (await res.json()) as { credentials: Credential[] };
@@ -225,9 +256,7 @@ function VerifyInner() {
                 <IconCheck size={24} color="var(--accent)" stroke={2.5} />
               </span>
               <div style={{ fontWeight: 500 }}>
-                {returnUrl
-                  ? "Verified"
-                  : `${selected.length} credential${selected.length > 1 ? "s" : ""} saved`}
+                {returnUrl ? "Verified" : "Credential saved"}
               </div>
               <div className="muted" style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>
                 {returnUrl
@@ -237,21 +266,20 @@ function VerifyInner() {
             </div>
           ) : (
             <>
-              <label className="field-label">Claims to verify</label>
+              <label className="field-label">Credential type</label>
               {locked && (
                 <p className="faint" style={{ fontSize: "0.8125rem", margin: "0.4rem 0 0" }}>
-                  A protocol requested the <strong style={{ color: "var(--accent)" }}>{requiredClaim}</strong> claim — selection is locked.
+                  A protocol requested the <strong style={{ color: "var(--accent)" }}>{requiredClaim}</strong> credential.
                 </p>
               )}
               <div className="stack" style={{ gap: "0.5rem", marginTop: "0.5rem", marginBottom: "1.25rem" }}>
                 {TYPES.map(([key, m]) => {
-                  const on = selected.includes(key);
-                  // When locked, hide everything except the required claim.
+                  const on = selected === key;
                   if (locked && key !== requiredClaim) return null;
                   return (
                     <div
                       key={key}
-                      onClick={() => toggle(key)}
+                      onClick={() => { if (!locked) setSelected(key); }}
                       style={{
                         padding: "0.75rem 0.9rem",
                         borderRadius: "var(--radius)",
@@ -265,17 +293,16 @@ function VerifyInner() {
                         <span className="row" style={{ gap: "0.6rem" }}>
                           <span
                             style={{
-                              width: 18,
-                              height: 18,
-                              borderRadius: 5,
+                              width: 16,
+                              height: 16,
+                              borderRadius: "50%",
                               display: "grid",
                               placeItems: "center",
-                              border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-                              background: on ? "var(--accent)" : "transparent",
+                              border: `2px solid ${on ? "var(--accent)" : "var(--border)"}`,
                               flexShrink: 0,
                             }}
                           >
-                            {on && <IconCheck size={12} color="#0a0a0a" stroke={3} />}
+                            {on && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} />}
                           </span>
                           <span style={{ fontWeight: 500, fontSize: "0.9rem" }}>{m.title}</span>
                         </span>
@@ -290,47 +317,11 @@ function VerifyInner() {
                         </span>
                       </div>
 
-                      {/* KYC needs identity fields for the SmileID check. These
-                          are sent once to verify identity and never stored. */}
                       {on && key === "kyc" && (
-                        <div
-                          className="stack"
-                          style={{ marginTop: "0.75rem", gap: "0.6rem" }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="grid grid-2" style={{ gap: "0.6rem" }}>
-                            <div>
-                              <label className="field-label">First name</label>
-                              <input
-                                value={attributes.first_name ?? ""}
-                                onChange={(e) => setAttr("first_name", e.target.value)}
-                                placeholder="Ada"
-                              />
-                            </div>
-                            <div>
-                              <label className="field-label">Last name</label>
-                              <input
-                                value={attributes.last_name ?? ""}
-                                onChange={(e) => setAttr("last_name", e.target.value)}
-                                placeholder="Lovelace"
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="field-label">ID Number (NIN, passport, etc.)</label>
-                            <input
-                              value={attributes.id_number ?? ""}
-                              onChange={(e) => setAttr("id_number", e.target.value)}
-                              placeholder="00000000000"
-                            />
-                          </div>
-                          <p className="faint" style={{ fontSize: "0.75rem", margin: 0 }}>
-                            Used once to verify your identity with the KYC provider. Never stored.
-                          </p>
-                        </div>
+                        <p className="faint" style={{ fontSize: "0.75rem", margin: "0.5rem 0 0" }}>
+                          You&rsquo;ll be taken to a secure identity verification flow. No personal data is stored by StellarCred.
+                        </p>
                       )}
-
-                      {/* Per-claim attribute input, revealed when selected */}
                       {on && key === "age" && (
                         <div style={{ marginTop: "0.75rem" }} onClick={(e) => e.stopPropagation()}>
                           <label className="field-label">{m.attribute}</label>
@@ -359,14 +350,7 @@ function VerifyInner() {
                               Reading balance from Plaid…
                             </p>
                           ) : (
-                            <div
-                              style={{
-                                padding: "0.65rem 0.9rem",
-                                borderRadius: "var(--radius)",
-                                background: "rgba(62,207,142,0.05)",
-                                border: "1px solid rgba(62,207,142,0.2)",
-                              }}
-                            >
+                            <div style={{ padding: "0.65rem 0.9rem", borderRadius: "var(--radius)", background: "rgba(62,207,142,0.05)", border: "1px solid rgba(62,207,142,0.2)" }}>
                               <div className="between" style={{ alignItems: "center", marginBottom: plaidAccounts.length > 1 ? "0.5rem" : 0 }}>
                                 <span className="row" style={{ gap: "0.4rem", fontSize: "0.75rem", color: "var(--faint)" }}>
                                   <IconBuildingBank size={12} stroke={1.6} />
@@ -388,9 +372,7 @@ function VerifyInner() {
                               )}
                               <hr style={{ margin: "0.5rem 0", borderColor: "rgba(62,207,142,0.15)" }} />
                               <div className="between" style={{ alignItems: "center" }}>
-                                <span className="faint" style={{ fontSize: "0.72rem" }}>
-                                  Proof will certify
-                                </span>
+                                <span className="faint" style={{ fontSize: "0.72rem" }}>Proof will certify</span>
                                 <span style={{ fontSize: "0.8rem", fontWeight: 500, color: "var(--accent)" }}>
                                   balance ≥ ${Number(claimParamsFromUrl.threshold ?? "10000").toLocaleString("en-US")}
                                 </span>
@@ -405,14 +387,9 @@ function VerifyInner() {
                       {on && key === "jurisdiction" && (
                         <div style={{ marginTop: "0.75rem" }} onClick={(e) => e.stopPropagation()}>
                           <label className="field-label">{m.attribute}</label>
-                          <select
-                            value={attributes.country_code}
-                            onChange={(e) => setAttr("country_code", e.target.value)}
-                          >
+                          <select value={attributes.country_code} onChange={(e) => setAttr("country_code", e.target.value)}>
                             {COUNTRIES.map((c) => (
-                              <option key={c.code} value={c.code}>
-                                {c.name} ({c.code})
-                              </option>
+                              <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
                             ))}
                           </select>
                         </div>
@@ -452,17 +429,17 @@ function VerifyInner() {
               <button
                 className="btn btn-primary"
                 style={{ width: "100%" }}
-                disabled={busy || selected.length === 0}
+                disabled={busy || !selected}
                 onClick={onRequest}
               >
                 {busy ? (
                   <>
                     <IconLoader2 size={15} className="spin" />
-                    Creating {selected.length} credential{selected.length > 1 ? "s" : ""}…
+                    {selected === "kyc" ? "Redirecting to verification…" : "Creating credential…"}
                   </>
                 ) : (
                   <>
-                    Get {selected.length} credential{selected.length > 1 ? "s" : ""}
+                    {selected === "kyc" ? "Verify identity" : "Get credential"}
                     <IconArrowRight size={15} />
                   </>
                 )}
