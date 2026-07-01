@@ -87,15 +87,11 @@ function getSdk(): Promise<StellarSDK> {
   return _sdk;
 }
 
-async function readIsVerified(
-  wallet: string,
-  claimType: string,
-): Promise<{ valid: boolean; verifiedAt: number; expiry: number } | null> {
+async function simulate<T>(wallet: string, op: unknown): Promise<T | null> {
   const { registryId, rpcUrl, networkPassphrase } = _config;
   if (!registryId) return null;
 
-  const { rpc, Contract, TransactionBuilder, Address, nativeToScVal, scValToNative, BASE_FEE } =
-    await getSdk();
+  const { rpc, TransactionBuilder, BASE_FEE, scValToNative } = await getSdk();
   const server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
 
   let account;
@@ -105,26 +101,56 @@ async function readIsVerified(
     return null;
   }
 
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .addOperation(op as any)
+    .setTimeout(30)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim) || !sim.result) return null;
+  return scValToNative(sim.result.retval) as T;
+}
+
+async function readIsVerified(
+  wallet: string,
+  claimType: string,
+): Promise<{ valid: boolean; verifiedAt: number; expiry: number } | null> {
+  const { registryId } = _config;
+  if (!registryId) return null;
+
+  const { Contract, Address, nativeToScVal } = await getSdk();
   const contract = new Contract(registryId);
   const op = contract.call(
     "is_verified",
     Address.fromString(wallet).toScVal(),
     nativeToScVal(claimType, { type: "symbol" }),
   );
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
-    .addOperation(op)
-    .setTimeout(30)
-    .build();
 
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim) || !sim.result) return null;
-
-  const [valid, verifiedAt, expiry] = scValToNative(sim.result.retval) as [
-    boolean,
-    bigint | number,
-    bigint | number,
-  ];
+  const result = await simulate<[boolean, bigint | number, bigint | number]>(wallet, op);
+  if (!result) return null;
+  const [valid, verifiedAt, expiry] = result;
   return { valid, verifiedAt: Number(verifiedAt), expiry: Number(expiry) };
+}
+
+async function readCheckClaim(
+  wallet: string,
+  claimType: string,
+  minThreshold: number,
+): Promise<boolean> {
+  const { registryId } = _config;
+  if (!registryId) return false;
+
+  const { Contract, Address, nativeToScVal } = await getSdk();
+  const contract = new Contract(registryId);
+  const op = contract.call(
+    "check_claim",
+    Address.fromString(wallet).toScVal(),
+    nativeToScVal(claimType, { type: "symbol" }),
+    nativeToScVal(BigInt(minThreshold), { type: "u64" }),
+  );
+
+  return (await simulate<boolean>(wallet, op)) ?? false;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,15 +159,34 @@ async function readIsVerified(
 
 /**
  * Returns `true` if `wallet` has a currently-valid, unexpired proof of
- * `claimType` in the StellarCred ProofRegistry. This is the primary
- * integration call for protocols — one read-only simulation, no wallet
- * connection required, no fee.
+ * `claimType` in the StellarCred ProofRegistry.
+ *
+ * For parameterised claim types (age, income, funds), pass `minThreshold` to
+ * enforce that the proof was generated with at least that threshold — e.g. a
+ * proof for "balance ≥ 200,000" satisfies `minThreshold: 50000`, but a proof
+ * for "balance ≥ 10,000" does not. The check is performed on-chain and is
+ * fully trustless.
  *
  * @example
- * const eligible = await hasClaim("G1ABC…", "kyc");
- * if (!eligible) return redirect(buildVerifyUrl({ returnUrl, claim: "kyc" }));
+ * // Binary claim — no threshold needed
+ * const ok = await hasClaim("G1ABC…", "kyc");
+ *
+ * @example
+ * // Funds gate — require balance ≥ $50,000
+ * const ok = await hasClaim("G1ABC…", "funds", { minThreshold: 50000 });
+ *
+ * @example
+ * // Age gate — require age ≥ 21
+ * const ok = await hasClaim("G1ABC…", "age", { minThreshold: 21 });
  */
-export async function hasClaim(wallet: string, claimType: string): Promise<boolean> {
+export async function hasClaim(
+  wallet: string,
+  claimType: string,
+  opts?: { minThreshold?: number },
+): Promise<boolean> {
+  if (opts?.minThreshold !== undefined) {
+    return readCheckClaim(wallet, claimType, opts.minThreshold);
+  }
   const r = await readIsVerified(wallet, claimType);
   return !!r && r.valid;
 }

@@ -279,7 +279,15 @@ function VerifyInner() {
                           </span>
                           <span style={{ fontWeight: 500, fontSize: "0.9rem" }}>{m.title}</span>
                         </span>
-                        <span className="mono faint" style={{ fontSize: "0.72rem" }}>{m.claim}</span>
+                        <span className="mono faint" style={{ fontSize: "0.72rem" }}>
+                          {key === "funds" && claimParamsFromUrl.threshold
+                            ? `balance > $${Number(claimParamsFromUrl.threshold).toLocaleString("en-US")}`
+                            : key === "age" && claimParamsFromUrl.threshold_years
+                              ? `age ≥ ${claimParamsFromUrl.threshold_years}`
+                              : key === "income" && claimParamsFromUrl.threshold
+                                ? `income > $${Number(claimParamsFromUrl.threshold).toLocaleString("en-US")}`
+                                : m.claim}
+                        </span>
                       </div>
 
                       {/* KYC needs identity fields for the SmileID check. These
@@ -378,8 +386,17 @@ function VerifyInner() {
                                   ))}
                                 </div>
                               )}
-                              <p className="faint" style={{ fontSize: "0.72rem", margin: "0.5rem 0 0" }}>
-                                This value will be committed. Your exact balance is never stored or revealed on-chain.
+                              <hr style={{ margin: "0.5rem 0", borderColor: "rgba(62,207,142,0.15)" }} />
+                              <div className="between" style={{ alignItems: "center" }}>
+                                <span className="faint" style={{ fontSize: "0.72rem" }}>
+                                  Proof will certify
+                                </span>
+                                <span style={{ fontSize: "0.8rem", fontWeight: 500, color: "var(--accent)" }}>
+                                  balance ≥ ${Number(claimParamsFromUrl.threshold ?? "10000").toLocaleString("en-US")}
+                                </span>
+                              </div>
+                              <p className="faint" style={{ fontSize: "0.72rem", margin: "0.35rem 0 0" }}>
+                                Your exact balance is never stored or revealed on-chain — only this threshold is public.
                               </p>
                             </div>
                           )}

@@ -16,11 +16,13 @@ import { WalletButton } from "@/components/WalletButton";
 import { useWallet } from "@/lib/wallet-context";
 import { Badge } from "@/components/Badge";
 import { ConfigBanner } from "@/components/ConfigBanner";
-import { isVerified } from "@/lib/contracts";
+import { checkClaim } from "@/lib/contracts";
 
 interface Requirement {
   label: string;
   type: string;
+  /** For parameterised claims: the minimum threshold the protocol requires. */
+  minThreshold?: number;
 }
 
 interface Protocol {
@@ -47,8 +49,8 @@ const PROTOCOLS: Protocol[] = [
     stat: { label: "Total value locked", value: "$124,800", sub: "USDC · stellar:testnet" },
     requirements: [
       { label: "KYC verified", type: "kyc" },
-      { label: "Age ≥ 18", type: "age" },
-      { label: "Accredited investor", type: "income" },
+      { label: "Age ≥ 18", type: "age", minThreshold: 18 },
+      { label: "Accredited investor", type: "income", minThreshold: 200000 },
     ],
     verifyUrl: "/verify?return_url=/apps&claim=kyc",
     actionLabel: "Deposit",
@@ -63,7 +65,7 @@ const PROTOCOLS: Protocol[] = [
     description:
       "Fixed-rate yield vault for participants who can prove minimum liquid reserves. Balance is verified directly from your bank — nothing is disclosed on-chain.",
     stat: { label: "Current APY", value: "8.4%", sub: "30-day trailing average" },
-    requirements: [{ label: "Balance ≥ $10,000", type: "funds" }],
+    requirements: [{ label: "Balance ≥ $10,000", type: "funds", minThreshold: 10000 }],
     verifyUrl: "/verify?return_url=/apps&claim=funds&threshold=10000",
     actionLabel: "Deposit",
     inputLabel: "Amount (USDC)",
@@ -78,7 +80,7 @@ const PROTOCOLS: Protocol[] = [
       "Access to regulated derivatives and structured products restricted to verified adults. Age is proved from a ZK commitment — your date of birth is never revealed.",
     stat: { label: "Eligible instruments", value: "47", sub: "regulated derivatives" },
     requirements: [
-      { label: "Age ≥ 21", type: "age" },
+      { label: "Age ≥ 21", type: "age", minThreshold: 21 },
       { label: "KYC verified", type: "kyc" },
     ],
     verifyUrl: "/verify?return_url=/apps&claim=age&threshold_years=21",
@@ -116,9 +118,9 @@ function ProtocolCard({
     (async () => {
       try {
         const results = await Promise.all(
-          protocol.requirements.map((r) => isVerified(activeWallet, r.type)),
+          protocol.requirements.map((r) => checkClaim(activeWallet, r.type, r.minThreshold)),
         );
-        if (!cancelled) setStatuses(results.map((s) => s.valid));
+        if (!cancelled) setStatuses(results);
       } catch {
         // contracts not deployed — requirements stay unmet
       } finally {

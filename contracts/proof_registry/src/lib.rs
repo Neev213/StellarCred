@@ -12,7 +12,7 @@
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, panic_with_error,
-    Address, Bytes, BytesN, Env, Symbol,
+    symbol_short, Address, Bytes, BytesN, Env, Symbol,
 };
 
 // Persistent-entry lifetime management (~5s ledgers).
@@ -47,6 +47,10 @@ const FIELD_BYTES: u32 = 32;
 pub struct ProofRecord {
     pub verified_at: u64,
     pub expiry: u64,
+    /// For parameterised credential types (age, income, funds), the threshold
+    /// value that was committed to in the proof's public inputs. None for types
+    /// with no numeric threshold (kyc, jurisdiction).
+    pub threshold: Option<u64>,
 }
 
 #[contracttype]
@@ -118,10 +122,11 @@ impl ProofRegistry {
             panic_with_error!(&env, Error::VerificationFailed);
         }
 
-        let key = DataKey::Proof(holder, credential_type);
+        let key = DataKey::Proof(holder, credential_type.clone());
         let record = ProofRecord {
             verified_at: env.ledger().timestamp(),
             expiry,
+            threshold: Self::extract_threshold(&credential_type, &public_inputs),
         };
         env.storage().persistent().set(&key, &record);
         env.storage()
@@ -145,6 +150,34 @@ impl ProofRegistry {
         }
     }
 
+    /// Like `is_verified` but also enforces a minimum threshold for parameterised
+    /// credential types (age, income, funds). A proof submitted with a threshold
+    /// of 200_000 satisfies `min_threshold = 50_000` because it proves strictly
+    /// more. For `kyc` and `jurisdiction`, pass `min_threshold = None`.
+    pub fn check_claim(
+        env: Env,
+        holder: Address,
+        credential_type: Symbol,
+        min_threshold: Option<u64>,
+    ) -> bool {
+        match env
+            .storage()
+            .persistent()
+            .get::<_, ProofRecord>(&DataKey::Proof(holder, credential_type))
+        {
+            Some(r) => {
+                if r.expiry <= env.ledger().timestamp() {
+                    return false;
+                }
+                match min_threshold {
+                    None => true,
+                    Some(min) => r.threshold.unwrap_or(0) >= min,
+                }
+            }
+            None => false,
+        }
+    }
+
     /// Revoke a cached proof. The holder authorizes their own revocation.
     pub fn revoke_proof(env: Env, holder: Address, credential_type: Symbol) {
         holder.require_auth();
@@ -159,6 +192,37 @@ impl ProofRegistry {
 
     pub fn issuer_registry_address(env: Env) -> Address {
         Self::issuer_registry(&env)
+    }
+
+    /// Extract the numeric threshold from the proof's public inputs for
+    /// credential types that carry one. Public-input layout after the common
+    /// header (commitment field 0, issuer_x fields 1-32, issuer_y fields 33-64):
+    ///   age:        field 65 = current_date, field 66 = threshold_years
+    ///   income:     field 65 = threshold
+    ///   funds:      field 65 = threshold
+    ///   kyc:        (no extra fields)
+    fn extract_threshold(credential_type: &Symbol, public_inputs: &Bytes) -> Option<u64> {
+        if *credential_type == symbol_short!("age") {
+            // field 66, bytes 2112-2143, u64 in last 8 bytes
+            Some(Self::read_u64_field(public_inputs, 66))
+        } else if *credential_type == symbol_short!("income")
+            || *credential_type == symbol_short!("funds")
+        {
+            // field 65, bytes 2080-2111, u64 in last 8 bytes
+            Some(Self::read_u64_field(public_inputs, 65))
+        } else {
+            None
+        }
+    }
+
+    /// Read a big-endian u64 from the last 8 bytes of a 32-byte field element.
+    fn read_u64_field(public_inputs: &Bytes, field_index: u32) -> u64 {
+        let base = field_index * FIELD_BYTES;
+        let mut b = [0u8; 8];
+        for i in 0..8u32 {
+            b[i as usize] = public_inputs.get(base + 24 + i).unwrap_or(0);
+        }
+        u64::from_be_bytes(b)
     }
 
     /// True iff the secp256k1 public key embedded in `public_inputs` (fields
