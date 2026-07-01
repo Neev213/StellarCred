@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes, createHmac } from "crypto";
+import { randomBytes } from "crypto";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 // Resolved by webpack at build time — avoids process.cwd() which is unreliable
@@ -29,7 +29,7 @@ function randomField(): string {
 }
 
 // Derive the circuit `value` (preimage) for a credential type from the shared
-// verification attributes. One SmileID/KYC response carries everything needed
+// verification attributes. One Persona/KYC response carries everything needed
 // for every requested type, so each type just reads the field it cares about.
 function attributeToValue(type: string, attributes: Record<string, string>): string {
   switch (type) {
@@ -86,75 +86,108 @@ function signCommitment(commitment: string): {
   return { sig: Array.from(sig), issuerX: x, issuerY: y };
 }
 
-// Attestation relay: StellarCred verifies identity with a trusted KYC provider
-// (SmileID) and only then signs credentials. We never store the raw identity
-// fields — they are passed straight to SmileID and discarded.
+// ---------------------------------------------------------------------------
+// Persona identity verification relay
+// ---------------------------------------------------------------------------
+// Two templates are supported:
+//   PERSONA_KYC_TEMPLATE_ID  — government ID flow; issues kyc + age + jurisdiction
+//   PERSONA_AGE_TEMPLATE_ID  — selfie age estimation; issues age credential only
 //
-// Mock mode: with no SMILEID_API_KEY set, verification always passes so local
-// development and the sandbox demo work without provider credentials.
+// If PERSONA_API_KEY is not set → demo fallback (always passes).
+// If PERSONA_API_KEY is set but the relevant template ID is missing → loud error.
+// ---------------------------------------------------------------------------
 
-// SmileID authenticates via HMAC-SHA256, not Bearer tokens.
-// signature = base64(HMAC_SHA256(timestamp + partner_id + "sid_request", api_key))
-function smileIDSignature(
-  partnerId: string,
-  apiKey: string,
-): { timestamp: string; signature: string } {
-  const timestamp = new Date().toISOString();
-  const signature = createHmac("sha256", apiKey)
-    .update(timestamp + partnerId + "sid_request")
-    .digest("base64");
-  return { timestamp, signature };
+const PERSONA_BASE = "https://withpersona.com/api/v1";
+const PERSONA_VERSION = "2023-01-05";
+
+function personaHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.PERSONA_API_KEY}`,
+    "Content-Type": "application/json",
+    "Persona-Version": PERSONA_VERSION,
+  };
 }
 
-async function verifyWithSmileID(
-  attributes: Record<string, string>,
-): Promise<{ ok: boolean; code: string; text: string }> {
-  if (!process.env.SMILEID_API_KEY) {
-    console.warn(
-      "[StellarCred] SMILEID_API_KEY not set — running in mock mode, verification always passes",
-    );
-    return { ok: true, code: "mock", text: "mock mode" };
-  }
-
-  const apiKey = process.env.SMILEID_API_KEY;
-  const partnerId = process.env.SMILEID_PARTNER_ID ?? "";
-  const isSandbox = (process.env.SMILEID_ENVIRONMENT ?? "sandbox") !== "production";
-  const baseUrl = isSandbox
-    ? "https://testapi.smileidentity.com"
-    : "https://api.smileidentity.com";
-
-  const { timestamp, signature } = smileIDSignature(partnerId, apiKey);
-
-  const response = await fetch(`${baseUrl}/v1/id_verification`, {
+async function createPersonaInquiry(
+  templateId: string,
+  redirectUri: string,
+): Promise<{ url: string; id: string }> {
+  const res = await fetch(`${PERSONA_BASE}/inquiries`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: personaHeaders(),
     body: JSON.stringify({
-      partner_id: partnerId,
-      timestamp,
-      signature,
-      country: attributes.country ?? "NG",
-      id_type: process.env.SMILEID_ID_TYPE ?? "NIN_V2",
-      id_number: attributes.id_number ?? "",
-      first_name: attributes.first_name ?? "",
-      last_name: attributes.last_name ?? "",
-      partner_params: {
-        job_id: randomBytes(16).toString("hex"),
-        user_id: randomBytes(16).toString("hex"),
-        job_type: 5,
-        ...(isSandbox ? { sandbox_result: "0" } : {}),
+      data: {
+        attributes: {
+          "inquiry-template-id": templateId,
+          "redirect-uri": redirectUri,
+        },
       },
     }),
   });
-
-  const result = await response.json();
-  const code: string = result.ResultCode ?? result.result?.ResultCode ?? "";
-  const text: string = result.ResultText ?? result.result?.ResultText ?? "";
-  console.log("[SmileID]", response.status, code, text);
-
-  // 1012 = sandbox success; 1020 = production exact match; 1021 = partial match.
-  const ok = code === "1012" || code === "1020" || code === "1021";
-  return { ok, code, text };
+  const json = await res.json();
+  if (!res.ok) throw new Error(`Persona: failed to create inquiry — ${JSON.stringify(json)}`);
+  const id: string = json.data.id;
+  // Persona hosted flow URL
+  const url = `https://withpersona.com/verify?inquiry-id=${id}`;
+  return { url, id };
 }
+
+async function retrievePersonaInquiry(inquiryId: string): Promise<{
+  status: string;
+  fields: Record<string, { value: unknown }>;
+}> {
+  const res = await fetch(`${PERSONA_BASE}/inquiries/${inquiryId}`, {
+    headers: personaHeaders(),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`Persona: failed to retrieve inquiry — ${JSON.stringify(json)}`);
+  return {
+    status: json.data.attributes.status as string,
+    fields: (json.data.attributes.fields ?? {}) as Record<string, { value: unknown }>,
+  };
+}
+
+// Minimal ISO 3166-1 alpha-2 → numeric map for countries we care about.
+// Persona returns alpha-2 codes; our jurisdiction circuit uses numeric.
+const ALPHA2_TO_NUMERIC: Record<string, string> = {
+  NG: "566", US: "840", DE: "276", IN: "356", IR: "364",
+  GB: "826", FR: "250", CA: "124", AU: "036", BR: "076",
+  CN: "156", JP: "392", KR: "410", ZA: "710", GH: "288",
+  KE: "404", EG: "818", MX: "484", AR: "032", SG: "702",
+};
+
+function alpha2ToNumeric(code: string): string {
+  return ALPHA2_TO_NUMERIC[code.toUpperCase()] ?? "0";
+}
+
+// Called after user returns from Persona KYC (gov ID) inquiry.
+// Returns DOB and country so we can issue age + jurisdiction credentials.
+async function resolvePersonaKYC(inquiryId: string): Promise<{
+  ok: boolean;
+  dob?: string;
+  countryNumeric?: string;
+  error?: string;
+}> {
+  const { status, fields } = await retrievePersonaInquiry(inquiryId);
+  if (status !== "approved") {
+    return { ok: false, error: `Persona KYC inquiry status: ${status}` };
+  }
+  const dob =
+    String(fields["birthdate"]?.value ?? fields["birth-date"]?.value ?? "").trim() || undefined;
+  const alpha2 =
+    String(
+      fields["selected-country-code"]?.value ??
+      fields["country-code"]?.value ??
+      fields["address-country-code"]?.value ??
+      "",
+    ).trim() || undefined;
+  return {
+    ok: true,
+    dob,
+    countryNumeric: alpha2 ? alpha2ToNumeric(alpha2) : undefined,
+  };
+}
+
 
 // Plaid balance attestation relay. Returns the verified balance from the user's
 // bank — this becomes the credential value, not what the user typed.
@@ -288,6 +321,8 @@ export async function POST(req: NextRequest) {
     attributes?: Record<string, string>;
     attribute?: string;
     claimParams?: ClaimParams;
+    // Set by the frontend after the user returns from Persona's hosted flow.
+    persona_inquiry_id?: string;
   };
 
   try {
@@ -302,6 +337,7 @@ export async function POST(req: NextRequest) {
     issuerName = "StellarCred Authority",
     expiry = "90 days",
     claimParams,
+    persona_inquiry_id: personaInquiryId,
   } = body;
 
   // Normalize to the multi-claim shape. Legacy callers send { type, attribute };
@@ -328,15 +364,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "issuerId is required" }, { status: 400 });
   }
 
-  // Gate KYC/age/jurisdiction issuance on SmileID identity verification.
-  const needsKyc = credentialTypes.some((t) => ["kyc", "age", "jurisdiction"].includes(t));
-  if (needsKyc) {
-    const kyc = await verifyWithSmileID(attributes);
-    if (!kyc.ok) {
-      return NextResponse.json(
-        { error: "Identity verification failed", smileid: { code: kyc.code, text: kyc.text } },
-        { status: 403 },
-      );
+  // ---------------------------------------------------------------------------
+  // Identity verification via Persona
+  // ---------------------------------------------------------------------------
+  // needsKyc = any of kyc / jurisdiction, OR age when KYC template is available
+  // needsAgeOnly = age-only request when only the selfie age template is available
+  //
+  // Decision tree:
+  //   PERSONA_API_KEY not set                           → demo fallback (always passes)
+  //   PERSONA_API_KEY set, KYC types requested:
+  //     PERSONA_KYC_TEMPLATE_ID not set                → 500 (misconfiguration)
+  //     no inquiry_id yet                              → 202 + Persona URL (redirect)
+  //     inquiry_id present                             → verify + extract DOB/country
+  //   PERSONA_API_KEY set, age-only requested:
+  //     PERSONA_AGE_TEMPLATE_ID not set                → 500 (misconfiguration)
+  //     no inquiry_id yet                              → 202 + Persona URL (redirect)
+  //     inquiry_id present                             → verify + extract min_age
+  // ---------------------------------------------------------------------------
+  // Gate the kyc credential on Persona identity verification (gov ID flow).
+  // Age and jurisdiction are standalone — user-provided values, no external verification.
+  // If PERSONA_API_KEY is not set → demo fallback, verification skipped.
+  // If PERSONA_API_KEY is set but PERSONA_KYC_TEMPLATE_ID is missing → 500.
+  const needsIdentity = credentialTypes.includes("kyc");
+  if (needsIdentity) {
+    if (!process.env.PERSONA_API_KEY) {
+      console.warn("[StellarCred] PERSONA_API_KEY not set — demo mode, identity verification skipped");
+    } else {
+      const templateId = process.env.PERSONA_KYC_TEMPLATE_ID;
+      if (!templateId) {
+        return NextResponse.json(
+          { error: "PERSONA_KYC_TEMPLATE_ID is required when PERSONA_API_KEY is set" },
+          { status: 500 },
+        );
+      }
+      const baseUrl = process.env.NEXT_PUBLIC_STELLARCRED_BASE_URL ?? "http://localhost:3000";
+      if (!personaInquiryId) {
+        // First request — create a Persona inquiry and ask the frontend to redirect.
+        const { url, id } = await createPersonaInquiry(templateId, `${baseUrl}/verify`);
+        return NextResponse.json({ needsPersona: true, personaUrl: url, inquiryId: id }, { status: 202 });
+      }
+      // Second request — user returned from Persona, verify the completed inquiry.
+      const kyc = await resolvePersonaKYC(personaInquiryId);
+      if (!kyc.ok) {
+        return NextResponse.json({ error: kyc.error ?? "Identity verification failed" }, { status: 403 });
+      }
+      if (kyc.dob) attributes.date_of_birth = kyc.dob;
+      if (kyc.countryNumeric) attributes.country_code = kyc.countryNumeric;
     }
   }
 
