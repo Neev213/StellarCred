@@ -79,14 +79,20 @@ export default function DevelopersPage() {
       <Section title="Checking a claim">
         <p className="muted" style={{ fontSize: "0.95rem", lineHeight: 1.7 }}>
           The primary call. Returns <span className="mono">true</span> if the
-          wallet has a valid, unexpired proof of the claim.
+          wallet has a valid, unexpired proof of the claim. For parameterised
+          claims (age, income, funds), pass <span className="mono">minThreshold</span> to
+          enforce the threshold on-chain — trustlessly.
         </p>
         <Code>{`import { StellarCred } from "@stellarcred/sdk";
 
-// In your deposit function
-async function canUserDeposit(wallet: string): Promise<boolean> {
-  return await StellarCred.hasClaim(wallet, "kyc");
-}`}</Code>
+// Binary claim (kyc, jurisdiction) — no threshold
+const kycOk = await StellarCred.hasClaim(wallet, "kyc");
+
+// Age gate — proof must have been generated with threshold_years >= 21
+const ageOk = await StellarCred.hasClaim(wallet, "age", { minThreshold: 21 });
+
+// Funds gate — proof must certify balance >= $50,000
+const fundsOk = await StellarCred.hasClaim(wallet, "funds", { minThreshold: 50000 });`}</Code>
       </Section>
 
       <Section title="Configuration">
@@ -218,13 +224,18 @@ const verified = await StellarCred.hasClaim(wallet, "kyc");`}</Code>
 
       <Section title="Calling the contract directly">
         <p className="muted" style={{ fontSize: "0.95rem", lineHeight: 1.7 }}>
-          Prefer Soroban? Read ProofRegistry from your own contract — no SDK
-          required.
+          Prefer Soroban? Call ProofRegistry from your own contract — no SDK
+          required. Use <span className="mono">is_verified</span> for binary claims
+          and <span className="mono">check_claim</span> for threshold enforcement.
         </p>
-        <Code>{`// In your Soroban contract
+        <Code>{`// Binary claim (kyc, jurisdiction)
 let registry = ProofRegistryClient::new(&env, &registry_id);
 let (verified, _, _) = registry.is_verified(&holder, &symbol_short!("kyc"));
-require!(verified, Error::KycRequired);`}</Code>
+require!(verified, Error::KycRequired);
+
+// Parameterised claim — enforce minimum threshold on-chain
+let eligible = registry.check_claim(&holder, &symbol_short!("funds"), &Some(50_000u64));
+require!(eligible, Error::InsufficientFunds);`}</Code>
       </Section>
 
       <div style={{ height: "4rem" }} />

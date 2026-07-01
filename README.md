@@ -26,8 +26,7 @@ reusable proofs instead of re-submitting personal data to every app.
   (`std::ecdsa_secp256k1`) inside the proof, and the contract binds that key to
   the registered issuer — a proof only passes if a *registered* issuer actually
   signed the credential.
-- **`is_verified` is the on-chain `hasClaim` primitive.** Protocols gate access
-  with one cheap read. No API, no backend, no data handling.
+- **`is_verified` / `check_claim` are the on-chain primitives.** `is_verified` checks binary claims (kyc, jurisdiction); `check_claim(holder, type, min_threshold)` enforces numeric thresholds (age, income, funds) — a proof for ≥200k satisfies a ≥50k gate. One read, no API, no data handling.
 - **Multi-claim issuance.** One verification issues every requested credential
   (KYC, age, jurisdiction, …) in a single call.
 - **Drop-in integration.** The [`@stellarcred/sdk`](frontend/packages/sdk) gives
@@ -108,8 +107,12 @@ question: *has this wallet proven the claim I require?*
 ```ts
 import { StellarCred } from "@stellarcred/sdk";
 
-// Gate an action on a claim
+// Binary claim — KYC, jurisdiction
 const canDeposit = await StellarCred.hasClaim(wallet, "kyc");
+
+// Threshold claim — enforce minimum on-chain
+const canAccessVault = await StellarCred.hasClaim(wallet, "funds", { minThreshold: 50000 });
+const canTrade = await StellarCred.hasClaim(wallet, "age", { minThreshold: 21 });
 ```
 
 If the user hasn't verified yet, send them to StellarCred and get them back
