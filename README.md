@@ -82,17 +82,18 @@ circuits/               Noir circuits (UltraHonk · Noir 1.0.0-beta.9 / bb 0.87.
   age_proof/              "I am over N" without revealing date of birth
   income_proof/           "my income exceeds T" without revealing it
   jurisdiction_proof/     "my country is not restricted" without revealing it
+  funds_proof/            "my balance exceeds T" without revealing it
   scripts/build.sh        compile + prove + stage circuit JSON for the frontend
 fixtures/<type>/        real vk / proof / public_inputs per type (contract tests)
 frontend/               Next.js 14 app (App Router)
-  app/                    landing, holder, verify, issuer, verifier, developers, docs
+  app/                    landing, holder, verify, issuer, apps, developers, docs
   app/api/issue/          server-side credential issuance (signs with ISSUER_PRIVATE_KEY)
   packages/sdk/           @stellarcred/sdk — hasClaim / getClaims / buildVerifyUrl
   lib/                    proof.ts (noir_js + bb.js), contracts.ts (stellar-sdk), wallet
 scripts/deploy.sh       deploy + wire + register issuer + install all VKs on testnet
 ```
 
-All four credential circuits share one commitment scheme,
+All five credential circuits share one commitment scheme,
 `commitment = Poseidon2([value, salt], 2)`, so the issuer derives every
 commitment with a single `commit` helper and each type is independently issuable
 and provable.
@@ -144,6 +145,7 @@ full reference.
 | `age`          | Age ≥ threshold              | Date of birth             |
 | `income`       | Income ≥ threshold           | Actual income             |
 | `jurisdiction` | Country not restricted       | Country code              |
+| `funds`        | Balance ≥ threshold          | Exact balance (from Plaid)|
 
 ---
 
@@ -240,8 +242,8 @@ account (https://lab.stellar.org or friendbot).
   wallet (saved locally, never server-side).
 - **Holder** — connect the wallet → "Generate proof" (proves locally, ~seconds)
   → submit to Stellar (signs + submits).
-- **Verifier** (PrivPool demo) — watch *access denied → granted* as the on-chain
-  `is_verified` flips, and try the "Simulate protocol redirect" loop.
+- **Apps** — three demo protocols (LendFi, FundVault, AgeGate) each gated on a
+  different claim type; watch *access denied → granted* as `is_verified` flips.
 
 **Rotating the issuer key** doesn't require a redeploy — generate a new key and
 call `register_issuer` on the existing IssuerRegistry with the new public key.
@@ -256,9 +258,9 @@ call `register_issuer` on the existing IssuerRegistry with the new public key.
 - **ZK verification is real**, on soroban-sdk 26 with host-native BN254
   (`soroban_sdk::crypto::bn254`) — on-chain verification fits the resource budget
   (~0.014 XLM/verify on testnet per the reference repo).
-- **21 contract tests pass**, including real proof verification for all four
-  credential types, in-circuit ECDSA, untrusted-issuer and wrong-issuer-key
-  rejections, and a proof-expiry test that advances ledger time.
+- **21 contract tests pass**, including real proof verification for all credential
+  types, in-circuit ECDSA, untrusted-issuer and wrong-issuer-key rejections, and
+  a proof-expiry test that advances ledger time.
 - **Toolchain is pinned**: Noir `1.0.0-beta.9`, Barretenberg `bb 0.87.0`, matching
   the verifier crate; the VK is deterministic from the circuit.
 - Server-side issuance, multi-claim flow, the return-URL redirect, the

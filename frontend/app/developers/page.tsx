@@ -45,9 +45,10 @@ function Section({
 
 const CLAIMS: [string, string, string][] = [
   ["kyc", "Identity verified", "KYC provider"],
-  ["age", "Age ≥ 18", "KYC provider"],
+  ["age", "Age ≥ 18 (threshold configurable)", "KYC provider"],
   ["income", "Income ≥ threshold", "Financial data provider"],
   ["jurisdiction", "Country not restricted", "KYC provider"],
+  ["funds", "Balance ≥ threshold", "Plaid / bank attestation"],
 ];
 
 const ADDRESSES: [string, string][] = [
@@ -88,23 +89,55 @@ async function canUserDeposit(wallet: string): Promise<boolean> {
 }`}</Code>
       </Section>
 
-      <Section title="Redirecting users to verify">
+      <Section title="Configuration">
         <p className="muted" style={{ fontSize: "0.95rem", lineHeight: 1.7 }}>
-          If a user hasn&rsquo;t verified yet, send them to StellarCred and get
-          them back automatically.
+          Call <span className="mono">configure()</span> once at startup, or set env vars.
+          Both approaches work in Node.js, Next.js, and edge runtimes.
         </p>
         <Code>{`import { StellarCred } from "@stellarcred/sdk";
 
-// Build the return URL
-const verifyUrl = StellarCred.buildVerifyUrl({
+// Option A — explicit (recommended for servers / edge)
+StellarCred.configure({
+  registryId: process.env.PROOF_REGISTRY_ID,
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  networkPassphrase: "Test SDF Network ; September 2015",
+});
+
+// Option B — env vars (auto-read at import time)
+// STELLARCRED_REGISTRY_ID=C...
+// STELLARCRED_RPC_URL=https://soroban-testnet.stellar.org
+// (also reads NEXT_PUBLIC_PROOF_REGISTRY_ID / NEXT_PUBLIC_RPC_URL)`}</Code>
+      </Section>
+
+      <Section title="Redirecting users to verify">
+        <p className="muted" style={{ fontSize: "0.95rem", lineHeight: 1.7 }}>
+          If a user hasn&rsquo;t verified yet, send them to StellarCred and get
+          them back automatically. Use <span className="mono">claimParams</span> to
+          customise thresholds.
+        </p>
+        <Code>{`import { StellarCred } from "@stellarcred/sdk";
+
+// KYC gate — basic redirect
+const kycUrl = StellarCred.buildVerifyUrl({
   returnUrl: 'https://yourapp.xyz/deposit',
   claim: 'kyc',
 });
 
-// Redirect the user
-window.location.href = verifyUrl;
+// Age gate — require 21+
+const ageUrl = StellarCred.buildVerifyUrl({
+  returnUrl: 'https://yourapp.xyz/markets',
+  claim: 'age',
+  claimParams: { threshold_years: '21' },
+});
 
-// When they return, check again:
+// Funds gate — require balance ≥ $50,000
+const fundsUrl = StellarCred.buildVerifyUrl({
+  returnUrl: 'https://yourapp.xyz/vault',
+  claim: 'funds',
+  claimParams: { threshold: '50000' },
+});
+
+// When the user returns, check again:
 const verified = await StellarCred.hasClaim(wallet, "kyc");`}</Code>
       </Section>
 

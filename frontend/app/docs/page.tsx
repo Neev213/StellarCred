@@ -552,6 +552,13 @@ export default function DocsPage() {
               attribute="ISO 3166-1 numeric country code"
               private="Exact country code"
             />
+            <CredRow
+              type="funds"
+              title="Proof of Funds"
+              claim="balance > $10,000"
+              attribute="Account balance from Plaid (verified by bank, never stored)"
+              private="Exact balance figure"
+            />
           </section>
 
           {/* ZK proof system ────────────────────────────────────── */}
@@ -812,7 +819,7 @@ fields 33–64  issuer_y   (secp256k1 Y, one byte per field in low byte)`}</Code
             <SubHeading>Build circuits</SubHeading>
             <CodeBlock>{`# From repo root
 cd circuits
-bash scripts/build.sh          # compiles all 4 circuits + commit helper
+bash scripts/build.sh          # compiles all 5 circuits + commit helper
                                # outputs *.json to frontend/public/circuits/
                                # outputs VKs to fixtures/*/vk`}</CodeBlock>
 
@@ -850,16 +857,16 @@ SOURCE=deployer ./scripts/deploy.sh
                 (<Code>friendbot.stellar.org/?addr=YOUR_ADDRESS</Code>)
               </li>
               <li>
-                Click <strong style={{color:"var(--text)"}}>Get credential</strong> in
+                Click <strong style={{color:"var(--text)"}}>Verify</strong> in
                 the nav, connect your wallet, and request a KYC credential
               </li>
               <li>
-                Go to <strong style={{color:"var(--text)"}}>Holder</strong>, click
+                Go to <strong style={{color:"var(--text)"}}>Wallet</strong>, click
                 <em> Generate proof</em> — the browser proves in ~10 seconds
               </li>
               <li>
                 Click <strong style={{color:"var(--text)"}}>Submit to Stellar</strong>,
-                approve in Freighter, and check the <strong style={{color:"var(--text)"}}>Demo</strong>{" "}
+                approve in Freighter, and check the <strong style={{color:"var(--text)"}}>Apps</strong>{" "}
                 page to see your eligibility update live
               </li>
             </ol>
@@ -879,8 +886,8 @@ SOURCE=deployer ./scripts/deploy.sh
               <Link href="/holder" className="btn btn-secondary">
                 Open dashboard
               </Link>
-              <Link href="/verifier" className="btn btn-ghost">
-                See the demo
+              <Link href="/apps" className="btn btn-ghost">
+                Explore apps
                 <IconArrowRight size={15} />
               </Link>
             </div>
