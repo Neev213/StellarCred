@@ -109,7 +109,7 @@ export default function Home() {
             </p>
 
             <div className="row" style={{ gap: "0.65rem", flexWrap: "wrap" }}>
-              <Link href="/verifier" className="btn btn-primary btn-lg">
+              <Link href="/apps" className="btn btn-primary btn-lg">
                 See the demo
                 <IconArrowRight size={16} />
               </Link>

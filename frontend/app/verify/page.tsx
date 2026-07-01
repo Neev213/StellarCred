@@ -10,7 +10,6 @@ import {
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { useWallet } from "@/lib/wallet-context";
-import { Badge } from "@/components/Badge";
 import { saveCredential, TYPE_META, type Credential } from "@/lib/credential";
 import type { CredentialType } from "@/lib/stellar";
 
@@ -206,28 +205,10 @@ function VerifyInner() {
     <>
       <div className="between" style={{ marginBottom: "2rem" }}>
         <div>
-          <span className="eyebrow">Demo</span>
+          <span className="eyebrow">Verify</span>
           <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Get verified</h1>
         </div>
         <WalletButton />
-      </div>
-
-      <div
-        style={{
-          marginBottom: "1.75rem",
-          padding: "0.75rem 1rem",
-          borderRadius: "var(--radius)",
-          background: "rgba(62,207,142,0.05)",
-          border: "1px solid rgba(62,207,142,0.15)",
-          fontSize: "0.8125rem",
-          color: "var(--muted)",
-          lineHeight: 1.6,
-        }}
-      >
-        <strong style={{ color: "var(--text)" }}>Demo shortcut.</strong>{" "}
-        In production, credentials come from a real issuer&rsquo;s portal after off-chain verification —
-        KYC provider, bank, government, etc. This page simulates that by self-issuing directly to
-        your connected wallet. Pick every claim you want — one verification issues them all.
       </div>
 
       <div style={{ maxWidth: 520, margin: "0 auto" }}>
@@ -459,12 +440,6 @@ function VerifyInner() {
           )}
         </div>
 
-        {!done && address && (
-          <div className="row faint" style={{ marginTop: "1rem", fontSize: "0.8125rem", justifyContent: "center" }}>
-            <Badge variant="pending">Demo issuer</Badge>
-            <span>Credentials are issued by the StellarCred demo key</span>
-          </div>
-        )}
       </div>
     </>
   );

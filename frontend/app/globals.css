@@ -44,7 +44,7 @@
   --radius-xl: 24px;
 
   --ease:  cubic-bezier(0.22, 1, 0.36, 1);
-  --maxw:  1100px;
+  --maxw:  1200px;
 }
 
 * { box-sizing: border-box; }
@@ -263,6 +263,24 @@ p { margin: 0; }
   background: var(--card-hover);
   transform: translateY(-2px);
   box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+}
+
+/* Clickable protocol card */
+.protocol-card {
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease),
+    box-shadow 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.protocol-card:hover {
+  border-color: rgba(62, 207, 142, 0.35);
+  background: var(--card-hover);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.4), 0 0 0 1px rgba(62,207,142,0.1);
+}
+
+.protocol-card:active {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 
 /* Glowing accent card */
