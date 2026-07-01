@@ -7,23 +7,32 @@ export const metadata: Metadata = {
 };
 
 function Code({ children }: { children: string }) {
+  const lines = children.split("\n");
   return (
     <pre
       style={{
         fontFamily: "var(--font-mono), monospace",
         fontSize: "0.8rem",
-        background: "var(--bg-raised)",
+        background: "var(--card)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius)",
         padding: "1rem 1.25rem",
         overflowX: "auto",
         lineHeight: 1.7,
-        color: "var(--muted)",
         margin: "0.75rem 0 0",
         whiteSpace: "pre",
       }}
     >
-      <code style={{ color: "var(--text)" }}>{children}</code>
+      <code>
+        {lines.map((line, i) => (
+          <span key={i}>
+            <span style={{ color: line.trimStart().startsWith("//") ? "var(--faint)" : "var(--accent)" }}>
+              {line}
+            </span>
+            {i < lines.length - 1 ? "\n" : null}
+          </span>
+        ))}
+      </code>
     </pre>
   );
 }
@@ -37,7 +46,9 @@ function Section({
 }) {
   return (
     <section style={{ marginTop: "3rem" }}>
-      <h2 style={{ fontSize: "1.25rem", marginBottom: "0.5rem" }}>{title}</h2>
+      <h2 style={{ fontSize: "1.25rem", marginBottom: "0.5rem", color: "var(--text)" }}>
+        {title}
+      </h2>
       {children}
     </section>
   );
@@ -63,12 +74,17 @@ export default function DevelopersPage() {
     <div style={{ maxWidth: 760, margin: "0 auto" }}>
       <span className="eyebrow">Developers</span>
       <h1 style={{ fontSize: "2rem", marginTop: "0.35rem" }}>Integrate StellarCred</h1>
+      {/* <p className="muted" style={{ marginTop: "0.5rem", fontSize: "0.95rem", lineHeight: 1.6 }}>
+        One contract call. No API keys. No data handling.{" "}
+        <span style={{ color: "var(--accent)" }}>Verify once, trusted everywhere.</span>
+      </p> */}
 
       <Section title="How it works">
         <p className="muted" style={{ fontSize: "0.95rem", lineHeight: 1.7 }}>
           StellarCred stores zero-knowledge proofs on Stellar. Your protocol
           reads them with one contract call. No API keys, no backend, no data
-          handling — the only thing you trust is the on-chain ProofRegistry.
+          handling — the only thing you trust is the on-chain{" "}
+          <span className="mono">ProofRegistry</span>.
         </p>
       </Section>
 

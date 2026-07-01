@@ -101,8 +101,16 @@ and provable.
 
 ## Integrating a protocol
 
-Protocols never handle credential data — they ask the on-chain registry one
-question: *has this wallet proven the claim I require?*
+Install the SDK:
+
+```bash
+npm install @stellarcred/sdk
+```
+
+> Full SDK docs: [`frontend/packages/sdk/README.md`](frontend/packages/sdk/README.md) · [npm](https://www.npmjs.com/package/@stellarcred/sdk)
+
+Protocols never handle credential data - they ask the on-chain registry one
+question: _has this wallet proven the claim I require?_
 
 ```ts
 import { StellarCred } from "@stellarcred/sdk";
@@ -113,6 +121,12 @@ const canDeposit = await StellarCred.hasClaim(wallet, "kyc");
 // Threshold claim — enforce minimum on-chain
 const canAccessVault = await StellarCred.hasClaim(wallet, "funds", { minThreshold: 50000 });
 const canTrade = await StellarCred.hasClaim(wallet, "age", { minThreshold: 21 });
+const canAccessVault = await StellarCred.hasClaim(wallet, "funds", {
+  minThreshold: 50000,
+});
+const canTrade = await StellarCred.hasClaim(wallet, "age", {
+  minThreshold: 21,
+});
 ```
 
 If the user hasn't verified yet, send them to StellarCred and get them back
