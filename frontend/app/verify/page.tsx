@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   IconArrowRight,
   IconLoader2,
   IconCheck,
+  IconBuildingBank,
 } from "@tabler/icons-react";
 import { WalletButton } from "@/components/WalletButton";
 import { useWallet } from "@/lib/wallet-context";
@@ -65,6 +66,25 @@ function VerifyInner() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [plaidBalance, setPlaidBalance] = useState<number | null>(null);
+  const [plaidAccounts, setPlaidAccounts] = useState<{ name: string; available: number }[]>([]);
+  const [plaidMock, setPlaidMock] = useState(false);
+
+  const fundsSelected = selected.includes("funds");
+  useEffect(() => {
+    if (!fundsSelected) return;
+    setPlaidBalance(null);
+    fetch("/api/plaid-balance")
+      .then((r) => r.json())
+      .then((d: { balance?: number; accounts?: { name: string; available: number }[]; mock?: boolean; error?: string }) => {
+        if (d.balance !== undefined) {
+          setPlaidBalance(d.balance);
+          setPlaidAccounts(d.accounts ?? []);
+          setPlaidMock(!!d.mock);
+        }
+      })
+      .catch(() => {});
+  }, [fundsSelected]);
 
   function setAttr(key: string, val: string) {
     setAttributes((a) => ({ ...a, [key]: val }));
@@ -324,10 +344,46 @@ function VerifyInner() {
                         </div>
                       )}
                       {on && key === "funds" && (
-                        <p className="faint" style={{ fontSize: "0.75rem", margin: "0.75rem 0 0" }}
-                           onClick={(e) => e.stopPropagation()}>
-                          Your balance is read directly from your connected bank via Plaid. Nothing is stored.
-                        </p>
+                        <div style={{ marginTop: "0.75rem" }} onClick={(e) => e.stopPropagation()}>
+                          {plaidBalance === null ? (
+                            <p className="faint" style={{ fontSize: "0.75rem", margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                              <IconLoader2 size={12} className="spin" />
+                              Reading balance from Plaid…
+                            </p>
+                          ) : (
+                            <div
+                              style={{
+                                padding: "0.65rem 0.9rem",
+                                borderRadius: "var(--radius)",
+                                background: "rgba(62,207,142,0.05)",
+                                border: "1px solid rgba(62,207,142,0.2)",
+                              }}
+                            >
+                              <div className="between" style={{ alignItems: "center", marginBottom: plaidAccounts.length > 1 ? "0.5rem" : 0 }}>
+                                <span className="row" style={{ gap: "0.4rem", fontSize: "0.75rem", color: "var(--faint)" }}>
+                                  <IconBuildingBank size={12} stroke={1.6} />
+                                  {plaidMock ? "Mock balance" : "Verified balance (Plaid)"}
+                                </span>
+                                <span style={{ fontWeight: 600, fontSize: "1rem", color: "var(--text)" }}>
+                                  ${plaidBalance.toLocaleString("en-US")}
+                                </span>
+                              </div>
+                              {plaidAccounts.length > 1 && (
+                                <div className="stack" style={{ gap: "0.2rem" }}>
+                                  {plaidAccounts.map((a) => (
+                                    <div key={a.name} className="between" style={{ fontSize: "0.72rem" }}>
+                                      <span className="faint">{a.name}</span>
+                                      <span className="mono" style={{ color: "var(--muted)" }}>${a.available.toLocaleString("en-US")}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <p className="faint" style={{ fontSize: "0.72rem", margin: "0.5rem 0 0" }}>
+                                This value will be committed. Your exact balance is never stored or revealed on-chain.
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       )}
                       {on && key === "jurisdiction" && (
                         <div style={{ marginTop: "0.75rem" }} onClick={(e) => e.stopPropagation()}>
