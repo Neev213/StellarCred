@@ -397,7 +397,7 @@ export async function POST(req: NextRequest) {
           { status: 500 },
         );
       }
-      const baseUrl = process.env.NEXT_PUBLIC_STELLARCRED_BASE_URL ?? "http://localhost:3000";
+      const baseUrl = process.env.NEXT_PUBLIC_STELLARCRED_BASE_URL ?? req.nextUrl.origin;
       if (!personaInquiryId) {
         // First request — create a Persona inquiry and ask the frontend to redirect.
         const { url, id } = await createPersonaInquiry(templateId, `${baseUrl}/verify`);
