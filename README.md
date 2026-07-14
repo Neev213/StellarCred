@@ -1,5 +1,9 @@
 # StellarCred
 
+[![CI](https://github.com/Psalmuel01/StellarCred/actions/workflows/ci.yml/badge.svg)](https://github.com/Psalmuel01/StellarCred/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@stellarcred/sdk?label=%40stellarcred%2Fsdk)](https://www.npmjs.com/package/@stellarcred/sdk)
+
 **Privacy-preserving, reusable credentials for the Stellar ecosystem.**
 
 A user holds a credential issued by a trusted party (KYC provider, bank,
@@ -291,3 +295,13 @@ call `register_issuer` on the existing IssuerRegistry with the new public key.
 - UltraHonk Soroban verifier — https://github.com/yugocabrio/rs-soroban-ultrahonk
 - Noir — https://noir-lang.org/docs
 - Stellar Wallets Kit — https://stellarwalletskit.dev
+
+---
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, development workflow, and areas open for contribution.
+
+## License
+
+[MIT](LICENSE) © 2026 Samuel Dahunsi
