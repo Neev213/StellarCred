@@ -168,8 +168,6 @@ function VerifyInner() {
       // invalid — will be shown as urlError
     }
   }
-  // Display label for the "Returning to …" message: path for same-origin
-  // (relative) return URLs, hostname for absolute external ones.
   if (returnUrl && returnUrlIsValid) {
     if (returnUrl.startsWith("/")) {
       returnLabel = returnUrl;
